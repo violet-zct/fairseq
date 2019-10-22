@@ -62,13 +62,13 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
                                                      sample['net_input']['src_lengths'], sample['target']
         net_output = model(target_tokens, lengths, shifted_src_tokens)
         loss, nll_loss = self.compute_loss(model, net_output, sample, reduce=reduce) # loss is the sum loss over tokens
-        commitment_loss = self.commitment_cost * self.net_output[1]  # this is the mean loss over latent dimensions
+        commitment_loss = self.commitment_cost * net_output[1]  # this is the mean loss over latent dimensions
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
 
         commitment_loss = commitment_loss * sample_size
         loss = loss + commitment_loss
 
-        quantize_stats = {k: utils.item(v.data) for k, v in net_output[2].items()}
+        quantize_stats = {k: utils.item(v.data) if not isinstance(v, int) else v for k, v in net_output[2].items()}
         logging_output = {
             'loss': utils.item(loss.data) if reduce else loss.data,
             'nll_loss': utils.item(nll_loss.data) if reduce else nll_loss.data,

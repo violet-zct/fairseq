@@ -25,7 +25,7 @@ def print_stats(stats):
 
 def parse_kernel_and_strides(kernel, stride):
     def _parse(inpt):
-        return inpt.split(",")
+        return list(map(int, inpt.split(",")))
 
     return _parse(kernel), _parse(stride)
 
@@ -33,10 +33,10 @@ def parse_kernel_and_strides(kernel, stride):
 def compute_conv_mask(lengths, stride):
     # lengths: B
     # we use odd-number kernel
-    valid_lengths = torch.floor((lengths - 1) / stride + 1)
+    valid_lengths = (lengths - 1) / stride + 1
     max_length = torch.max(valid_lengths).item()
     mask = torch.arange(max_length, device=lengths.device).type_as(lengths).expand(len(lengths), max_length)
-    mask = mask < valid_lengths
+    mask = mask < valid_lengths.unsqueeze(1)
     return valid_lengths, mask  # mask -> batch x T'
 
 
@@ -50,15 +50,16 @@ class ConvEncoder(nn.Module):
         self.quant_conv = nn.Conv1d(input_channel, latent_dim, 1)
 
     def forward(self, input, lengths):
+        # input: batch x C x T
         new_mask = None
-        for ii, conv_layer, s in enumerate(zip(self.conv_blocks, self.strides)):
+        for ii, (conv_layer, s) in enumerate(zip(self.conv_blocks, self.strides)):
             input = F.relu(conv_layer(input))
             lengths, new_mask = compute_conv_mask(lengths, s)
-            input = input * new_mask.unqueeze(1)
+            input = input * new_mask.type_as(input).unsqueeze(1)
         output = self.quant_conv(input)
         # output: batch x C' x T' -> T' x batch x C'
         # new_mask: batch x T'
-        return output.permute(1, 0, 2), new_mask
+        return output.permute(2, 0, 1), new_mask
 
 
 class Quantize(nn.Module):
@@ -81,7 +82,6 @@ class Quantize(nn.Module):
         :param input_mask: T x batch
         :return:
         '''
-        input_mask = input_mask.type_as(input)
         # S = T x C
         flatten = input.reshape(-1, self.dim)  # S x C
         dist = (
@@ -101,22 +101,31 @@ class Quantize(nn.Module):
         batch = embed_ind.size(1)
         lengths = torch.sum(input_mask, dim=0)
         avg = input.new_zeros((batch))
-        masked_embed_inds = embed_ind * input_mask + torch.ones_like(embed_ind) * -1 * (1 - input_mask)
+        masked_embed_inds = embed_ind * input_mask.type_as(embed_ind) + torch.ones_like(embed_ind) * -1 * (1 - input_mask.type_as(embed_ind))
         for ii in range(batch):
             avg[ii] = len(torch.unique(masked_embed_inds[:, ii])) - 1
-        tot_unique_per_batch = (len(torch.unique(masked_embed_inds)) - 1)
-        avg_unique_per_example = torch.sum(avg / lengths) / batch
+        tot_unique_per_batch = len(torch.unique(masked_embed_inds)) - 1
+        avg_unique_per_example = torch.sum(avg / lengths.type_as(avg)) / batch
         stats['tot unique latents per batch'] = tot_unique_per_batch
         stats['avg unique latents per example'] = avg_unique_per_example
 
         if self.training:
-            unmasked_flatten = torch.masked_select(flatten, input_mask.view(-1, 1)).view(-1, self.dim)  # num_latents x C
-            unmasked_embed_onehot = torch.masked_select(embed_onehot, input_mask.view(-1, 1)).view(-1, self.n_embed)  # num_latents x K
-            self.cluster_size.data.mul_(self.decay).add_(
-                1 - self.decay, unmasked_embed_onehot.sum(0)
-            )
+            unmasked_flatten = torch.masked_select(flatten, input_mask.view(-1, 1)).contiguous().view(-1, self.dim)  # num_latents x C
+            unmasked_embed_onehot = torch.masked_select(embed_onehot, input_mask.view(-1, 1)).contiguous().view(-1, self.n_embed)  # num_latents x K
+
+            cluster_sum = unmasked_embed_onehot.sum(0)
             embed_sum = unmasked_flatten.transpose(0, 1) @ unmasked_embed_onehot  # C x K
-            self.embed_avg.data.mul_(self.decay).add_(1 - self.decay, embed_sum)
+
+            if torch.cuda.device_count() > 1:
+                torch.distributed.all_reduce(cluster_sum)
+                torch.distributed.all_reduce(embed_sum)
+
+            self.cluster_size.data.mul_(self.decay).add_(
+                1 - self.decay, cluster_sum
+            )
+            self.embed_avg.data.mul_(self.decay).add_(
+                1 - self.decay, embed_sum
+            )
             n = self.cluster_size.sum()
             cluster_size = (
                 (self.cluster_size + self.eps) / (n + self.n_embed * self.eps) * n
@@ -127,6 +136,7 @@ class Quantize(nn.Module):
             stats['moving_avg_cluster_mean'] = torch.mean(self.cluster_size)
             stats['moving_avg_cluster_var'] = torch.var(self.cluster_size)
 
+        input_mask = input_mask.type_as(input)
         quantize = quantize * input_mask.unsqueeze(-1)
         input = input * input_mask.unsqueeze(-1)
         diff = (quantize.detach() - input).pow(2).mean()
@@ -147,7 +157,7 @@ class VQVAE(FairseqLanguageModel):
         self.bottom_quantizer = bottom_quantizer
 
         self.bottom_conv_kernel_size, self.bottom_conv_strides = \
-            parse_kernel_and_strides(args.bottom_conv_kernel_size, args.bottom_conv_strides)
+            parse_kernel_and_strides(args.bottom_conv_kernel_size, args.bottom_conv_stride)
 
     @staticmethod
     def add_args(parser):
@@ -244,6 +254,7 @@ class VQVAE(FairseqLanguageModel):
 
         # fmt: on
 
+    @classmethod
     def build_model(cls, args, task):
         """Build a new model instance."""
 
@@ -296,7 +307,7 @@ class VQVAE(FairseqLanguageModel):
         text_encoder = TransformerEncoder(args, src_dict, embed_tokens, args.max_source_positions,
                                           args.encoder_layers, args.encoder_embed_dim, args.encoder_attention_heads,
                                           args.encoder_ffn_embed_dim)
-        kernels, strides = parse_kernel_and_strides(args.bottom_conv_kernel_size, args.bottom_conv_strides)
+        kernels, strides = parse_kernel_and_strides(args.bottom_conv_kernel_size, args.bottom_conv_stride)
         text_conv_encoder = ConvEncoder(args.encoder_embed_dim, kernels, strides, args.bottom_latent_dim)
         return text_encoder, text_conv_encoder
 
@@ -331,16 +342,16 @@ class VQVAE(FairseqLanguageModel):
         """
         target_lengths = src_lengths
         text_encoder_out = self.text_encoder(target_tokens, target_lengths)
-        encoding_mask = text_encoder_out['encoder_padding_mask']
-        conv_inpt = text_encoder_out['encoder_out'] * (encoding_mask.permute(0, 1).unqueeze(-1)) # T x B x C
-        text_conv_out, mask = self.text_conv_encoder(conv_inpt.permute(1, 2, 0))  # B x C x T -> T' x B x C', C' = latent_dim
+        encoding_mask = text_encoder_out['encoder_padding_mask'].type_as(text_encoder_out['encoder_out'])
+        conv_inpt = text_encoder_out['encoder_out'] * (encoding_mask.transpose(0, 1).unsqueeze(-1)) # T x B x C
+        text_conv_out, mask = self.text_conv_encoder(conv_inpt.permute(1, 2, 0), target_lengths)  # B x C x T -> T' x B x C', C' = latent_dim
         # diff is the loss to update the enocder
         # quantize: masked T X batch x C; diff: scalar; embed_ind: vector of T x C
-        quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out, mask.transpose(0, 1))
+        quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out, mask.transpose(0, 1).contiguous())
         # print(quantize_stats)
 
         quantize_out = {'encoder_out': quantize,  # masked T X batch x C
-                        'encoder_padding_mask': mask,  # B x T
+                        'encoder_padding_mask': ~mask,  # B x T
                         'encoder_embedding': text_encoder_out['encoder_embedding']  # B x T x C
                         }
 
@@ -389,8 +400,8 @@ def base_architecture(args):
     args.decoder_output_dim = getattr(args, 'decoder_output_dim', args.decoder_embed_dim)
     args.decoder_input_dim = getattr(args, 'decoder_input_dim', args.decoder_embed_dim)
 
-    args.bottom_conv_kernel_size = getattr(args, 'bottom_conv_kernel_size', '5')
-    args.bottom_conv_tride = getattr(args, 'bottom_conv_tride', '4')
+    args.bottom_conv_kernel_size = getattr(args, 'bottom_conv_kernel_size', '5,3')
+    args.bottom_conv_stride = getattr(args, 'bottom_conv_stride', '2,2')
     args.bottom_latent_dim = getattr(args, 'bottom_latent_dim', args.encoder_embed_dim)
     args.bottom_latent_k = getattr(args, 'bottom_latent_k', 4096)
 
