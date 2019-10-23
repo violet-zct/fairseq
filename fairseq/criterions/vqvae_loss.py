@@ -56,6 +56,8 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
     def get_commitment_weight(self):
         if self.updates <= self.commit_warm_up_steps:
             return self.commitment_cost
+        elif self.commit_anneal_steps == 0:
+            return self.commitment_cost
         else:
             return self.commitment_cost * min((self.updates - self.commit_warm_up_steps) / self.commit_anneal_steps, 1.0)
 
