@@ -37,6 +37,9 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         super().__init__(args, task)
         self.eps = args.label_smoothing
         self.commitment_cost = args.commitment_cost
+        self.commit_warm_up_steps = args.commitment_cost_warm_up_steps
+        self.commit_anneal_steps = args.commitment_cost_anneal_steps
+        self.updates = 0
 
     @staticmethod
     def add_args(parser):
@@ -46,7 +49,15 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
                             help='epsilon for label smoothing, 0 means no label smoothing')
         parser.add_argument('--commitment-cost', default=0.25, type=float,
                             help="weight of commitment cost between E(x) and sg(e)")
+        parser.add_argument('--commitment-cost-warm-up-steps', default=0, type=float)
+        parser.add_argument('--commitment-cost-anneal-steps', default=0, type=float)
         # fmt: on
+
+    def get_commitment_weight(self):
+        if self.updates <= self.commit_warm_up_steps:
+            return self.commitment_cost
+        else:
+            return self.commitment_cost * min((self.updates - self.commit_warm_up_steps) / self.commit_anneal_steps, 1.0)
 
     def forward(self, model, sample, reduce=True):
         """Compute the loss for the given sample.
@@ -62,7 +73,9 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
                                                      sample['net_input']['src_lengths'], sample['target']
         net_output = model(target_tokens, lengths, shifted_src_tokens)
         loss, nll_loss = self.compute_loss(model, net_output, sample, reduce=reduce) # loss is the sum loss over tokens
-        commitment_loss = self.commitment_cost * net_output[1]  # this is the mean loss over latent dimensions
+        commit_weight = self.get_commitment_weight()
+
+        commitment_loss = commit_weight * net_output[1]  # this is the mean loss over latent dimensions
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
 
         commitment_loss = commitment_loss * sample_size
@@ -78,6 +91,8 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             'sample_size': sample_size,
         }
         logging_output.update(quantize_stats)
+        if self.training:
+            self.updates += 1
         return loss, sample_size, logging_output
 
     def compute_loss(self, model, net_output, sample, reduce=True):

@@ -342,7 +342,7 @@ class VQVAE(FairseqLanguageModel):
         """
         target_lengths = src_lengths
         text_encoder_out = self.text_encoder(target_tokens, target_lengths)
-        encoding_mask = text_encoder_out['encoder_padding_mask'].type_as(text_encoder_out['encoder_out'])
+        encoding_mask = (~text_encoder_out['encoder_padding_mask']).type_as(text_encoder_out['encoder_out'])
         conv_inpt = text_encoder_out['encoder_out'] * (encoding_mask.transpose(0, 1).unsqueeze(-1)) # T x B x C
         text_conv_out, mask = self.text_conv_encoder(conv_inpt.permute(1, 2, 0), target_lengths)  # B x C x T -> T' x B x C', C' = latent_dim
         # diff is the loss to update the enocder

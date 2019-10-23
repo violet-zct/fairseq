@@ -333,7 +333,6 @@ class Trainer(object):
             if self.fast_stat_sync:
                 self._all_reduce_list[5] += ooms
 
-
         if ooms > 0 and self._oom_batch is not None:
             self.handle_ooms(ooms)
 
