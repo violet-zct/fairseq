@@ -150,14 +150,17 @@ class Quantize(nn.Module):
 
 @register_model('vqvae_lm')
 class VQVAE(FairseqLanguageModel):
-    def __init__(self, args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer):
+    def __init__(self, args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer, bottom_latent_encoder):
         super().__init__(text_decoder)
         self.text_encoder = text_encoder
         self.text_conv_encoder = text_conv_encoder
         self.bottom_quantizer = bottom_quantizer
+        self.bottom_latent_encoder = bottom_latent_encoder
 
         self.bottom_conv_kernel_size, self.bottom_conv_strides = \
             parse_kernel_and_strides(args.bottom_conv_kernel_size, args.bottom_conv_stride)
+
+        self.pretrain_steps = args.pretrain_steps
 
     @staticmethod
     def add_args(parser):
@@ -233,6 +236,7 @@ class VQVAE(FairseqLanguageModel):
         # todo: condition (attention) on the top level discrete representations and add condition to the typed TransformerEncoderLayer
         # arguments for the bottom level discrete latent variable encoder (transformer)
         #--bottom-encoder-embed-dim = --bottom-latent-dim
+        parser.add_argument('--use-bottom-quantants-encoder', type=int, metavar='N')
         parser.add_argument('--bottom-encoder-ffn-embed-dim', type=int, metavar='N',
                             help='encoder embedding dimension for FFN')
         parser.add_argument('--bottom-encoder-layers', type=int, metavar='N',
@@ -251,6 +255,10 @@ class VQVAE(FairseqLanguageModel):
                             help='num decoder attention heads')
         parser.add_argument('--share-decoder-input-output-embed', action='store_true',
                             help='share decoder input and output embeddings')
+
+        # ablations
+        parser.add_argument('--pretrain-steps', type=int, metavar='N')
+        parser.add_argument('--use-latent', type=int, metavar='N')
 
         # fmt: on
 
@@ -297,10 +305,14 @@ class VQVAE(FairseqLanguageModel):
                 src_dict, args.decoder_embed_dim, args.decoder_embed_path
             )
 
-        text_encoder, text_conv_encoder = cls.build_encoder(args, src_dict, encoder_embed_tokens)
+        text_encoder, text_conv_encoder, bottom_latent_encoder = cls.build_encoder(args, src_dict, encoder_embed_tokens)
         text_decoder = cls.build_decoder(args, src_dict, decoder_embed_tokens)
-        bottom_quantizer = cls.build_quantizer(args)
-        return VQVAE(args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer)
+
+        if args.use_latent:
+            bottom_quantizer = cls.build_quantizer(args)
+        else:
+            bottom_quantizer = None
+        return VQVAE(args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer, bottom_latent_encoder)
 
     @classmethod
     def build_encoder(cls, args, src_dict, embed_tokens):
@@ -309,7 +321,14 @@ class VQVAE(FairseqLanguageModel):
                                           args.encoder_ffn_embed_dim)
         kernels, strides = parse_kernel_and_strides(args.bottom_conv_kernel_size, args.bottom_conv_stride)
         text_conv_encoder = ConvEncoder(args.encoder_embed_dim, kernels, strides, args.bottom_latent_dim)
-        return text_encoder, text_conv_encoder
+
+        if args.use_bottom_quantants_encoder:
+            bottom_latent_encoder = TransformerEncoder(args, None, None, args.max_source_positions,
+                                            args.bottom_encoder_layers, args.bottom_latent_dim,
+                                            args.bottom_encoder_attention_heads, args.bottom_encoder_ffn_embed_dim)
+        else:
+            bottom_latent_encoder = None
+        return text_encoder, text_conv_encoder, bottom_latent_encoder
 
     @classmethod
     def build_quantizer(cls, args):
@@ -330,7 +349,7 @@ class VQVAE(FairseqLanguageModel):
         )
         return text_decoder
 
-    def forward(self, src_tokens, src_lengths, target_tokens, **kwargs):
+    def forward(self, src_tokens, src_lengths, target_tokens, update_steps, **kwargs):
         """
         output of text encoder
         {
@@ -341,19 +360,34 @@ class VQVAE(FairseqLanguageModel):
         }
         """
         target_lengths = src_lengths
-        text_encoder_out = self.text_encoder(target_tokens, target_lengths)
+        text_encoder_out = self.text_encoder(target_tokens)
         encoding_mask = (~text_encoder_out['encoder_padding_mask']).type_as(text_encoder_out['encoder_out'])
         conv_inpt = text_encoder_out['encoder_out'] * (encoding_mask.transpose(0, 1).unsqueeze(-1)) # T x B x C
+        # the output mask sets padding to be False
+        # text_conv_out: T' x batch x C'
+        # mask: batch x T'
         text_conv_out, mask = self.text_conv_encoder(conv_inpt.permute(1, 2, 0), target_lengths)  # B x C x T -> T' x B x C', C' = latent_dim
-        # diff is the loss to update the enocder
-        # quantize: masked T X batch x C; diff: scalar; embed_ind: vector of T x C
-        quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out, mask.transpose(0, 1).contiguous())
-        # print(quantize_stats)
 
-        quantize_out = {'encoder_out': quantize,  # masked T X batch x C
-                        'encoder_padding_mask': ~mask,  # B x T
-                        'encoder_embedding': text_encoder_out['encoder_embedding']  # B x T x C
-                        }
+        if self.bottom_quantizer is not None and update_steps > self.pretrain_steps:
+            # diff is the loss to update the enocder
+            # quantize: masked T X batch x C; diff: scalar; embed_ind: T x C
+            quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out, mask.transpose(0, 1).contiguous())
+
+            if self.bottom_latent_encoder is not None:
+               quantize_out = self.bottom_latent_encoder(src_encodings=quantize, encoder_padding_mask=~mask)
+               quantize_out['encoder_embedding'] = text_encoder_out['encoder_embedding']
+            else:
+                quantize_out = {'encoder_out': quantize,  # masked T X batch x C
+                                'encoder_padding_mask': ~mask,  # B x T, this mask sets padding to be True
+                                'encoder_embedding': text_encoder_out['encoder_embedding']  # B x T x C
+                                }
+        else:
+            quantize_out = {'encoder_out': text_encoder_out,  # masked T X batch x C
+                            'encoder_padding_mask': ~mask,  # B x T, this mask sets padding to be True
+                            'encoder_embedding': text_encoder_out['encoder_embedding']  # B x T x C
+                            }
+            diff = 0
+            quantize_stats = {}
 
         decoder_out = self.decoder(src_tokens, encoder_out=quantize_out)
         logits = decoder_out[0]
@@ -365,6 +399,19 @@ class VQVAE(FairseqLanguageModel):
 
         # todo: data set processing
         # todo: hierarchical model
+
+    def extract_codes(self, target_tokens, target_lengths):
+        text_encoder_out = self.text_encoder(target_tokens)
+        encoding_mask = (~text_encoder_out['encoder_padding_mask']).type_as(text_encoder_out['encoder_out'])
+        conv_inpt = text_encoder_out['encoder_out'] * (encoding_mask.transpose(0, 1).unsqueeze(-1))  # T x B x C
+        text_conv_out, mask = self.text_conv_encoder(conv_inpt.permute(1, 2, 0),
+                                                     target_lengths)  # B x C x T -> T' x B x C', C' = latent_dim
+
+        # diff is the loss to update the enocder
+        # quantize: masked T X batch x C; diff: scalar; embed_ind: T x C
+        quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out,
+                                                                          mask.transpose(0, 1).contiguous())
+        return embed_ind.transpose(0, 1).masked_fill(~mask, -1)
 
 
 @register_model_architecture('vqvae_lm', 'vqvae_lm')
@@ -405,10 +452,13 @@ def base_architecture(args):
     args.bottom_latent_dim = getattr(args, 'bottom_latent_dim', args.encoder_embed_dim)
     args.bottom_latent_k = getattr(args, 'bottom_latent_k', 4096)
 
+    args.use_bottom_quantants_encoder = getattr(args, 'use_bottom_quantants_encoder', 0)
     args.bottom_encoder_ffn_embed_dim = getattr(args, 'bottom_encoder_ffn_embed_dim', 1024)
     args.bottom_encoder_layers = getattr(args, 'bottom_encoder_layers', 3)
     args.bottom_encoder_attention_heads = getattr(args, 'bottom_encoder_attention_heads', 4)
 
+    args.use_latent = getattr(args, 'use_latent', 1)
+    args.pretrain_steps = getattr(args, 'pretrain_steps', -1)
 
 @register_model_architecture('vqvae_lm', "vqvae_lm_base")
 def vqvae_base(args):

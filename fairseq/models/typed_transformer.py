@@ -47,8 +47,12 @@ class TransformerEncoder(FairseqEncoder):
 
         self.dropout = args.dropout
 
-        embed_dim = embed_tokens.embedding_dim
-        self.padding_idx = embed_tokens.padding_idx
+        if embed_tokens is None:
+            self.padding_idx = 0
+            embed_dim = encoder_embed_dim
+        else:
+            self.padding_idx = embed_tokens.padding_idx
+            embed_dim = embed_tokens.embedding_dim
         self.max_source_positions = max_source_positions
 
         self.embed_tokens = embed_tokens
@@ -80,13 +84,15 @@ class TransformerEncoder(FairseqEncoder):
         x = F.dropout(x, p=self.dropout, training=self.training)
         return x, embed
 
-    def forward(self, src_tokens, src_lengths, cls_input=None, return_all_hiddens=False):
+    def forward(self, src_tokens=None, cls_input=None, return_all_hiddens=False, src_encodings=None, encoder_padding_mask=None):
         """
         Args:
             src_tokens (LongTensor): tokens in the source language of shape
                 `(batch, src_len)`
             src_lengths (torch.LongTensor): lengths of each source sentence of
                 shape `(batch)`
+            src_encodings (torch.FloatTensor): shape of `(T x B x C)`
+            encoder_padding_mask (torch.Boolean): shape of '(B x T)', where paddings are True
             return_all_hiddens (bool, optional): also return all of the
                 intermediate hidden states (default: False).
 
@@ -103,13 +109,20 @@ class TransformerEncoder(FairseqEncoder):
         if self.layer_wise_attention:
             return_all_hiddens = True
 
-        x, encoder_embedding = self.forward_embedding(src_tokens)
-
-        # B x T x C -> T x B x C
-        x = x.transpose(0, 1)
-
-        # compute padding mask
-        encoder_padding_mask = src_tokens.eq(self.padding_idx)
+        if self.embed_tokens is not None:
+            x, encoder_embedding = self.forward_embedding(src_tokens)
+            # B x T x C -> T x B x C
+            x = x.transpose(0, 1)
+            # compute padding mask
+            encoder_padding_mask = src_tokens.eq(self.padding_idx)
+        else:
+            assert encoder_padding_mask is not None
+            src_tokens = encoder_padding_mask.long()
+            encoder_embedding = None
+            x = src_encodings
+            if self.embed_positions is not None:
+                x = x + self.embed_positions(src_tokens)
+            x = F.dropout(x, p=self.dropout, training=self.training)
 
         encoder_states = [] if return_all_hiddens else None
 

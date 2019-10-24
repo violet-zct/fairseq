@@ -73,7 +73,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
 
         shifted_src_tokens, lengths, target_tokens = sample['net_input']['src_tokens'], \
                                                      sample['net_input']['src_lengths'], sample['target']
-        net_output = model(shifted_src_tokens, lengths, target_tokens)
+        net_output = model(shifted_src_tokens, lengths, target_tokens, self.updates)
         loss, nll_loss = self.compute_loss(model, net_output, sample, reduce=reduce) # loss is the sum loss over tokens
         commit_weight = self.get_commitment_weight()
 
