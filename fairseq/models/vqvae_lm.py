@@ -379,6 +379,7 @@ class VQVAE(FairseqLanguageModel):
 
         if self.bottom_latent_encoder is not None:
             quantize = self.bottom_latent_encoder(src_encodings=quantize, encoder_padding_mask=~mask)
+            quantize = quantize['encoder_out']
 
         quantize_out = {'encoder_out': quantize,  # masked T X batch x C
                         'encoder_padding_mask': ~mask,  # B x T, this mask sets padding to be True
