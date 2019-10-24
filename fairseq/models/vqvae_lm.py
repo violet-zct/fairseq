@@ -372,22 +372,18 @@ class VQVAE(FairseqLanguageModel):
             # diff is the loss to update the enocder
             # quantize: masked T X batch x C; diff: scalar; embed_ind: T x C
             quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out, mask.transpose(0, 1).contiguous())
-
-            if self.bottom_latent_encoder is not None:
-               quantize_out = self.bottom_latent_encoder(src_encodings=quantize, encoder_padding_mask=~mask)
-               quantize_out['encoder_embedding'] = text_encoder_out['encoder_embedding']
-            else:
-                quantize_out = {'encoder_out': quantize,  # masked T X batch x C
-                                'encoder_padding_mask': ~mask,  # B x T, this mask sets padding to be True
-                                'encoder_embedding': text_encoder_out['encoder_embedding']  # B x T x C
-                                }
         else:
-            quantize_out = {'encoder_out': text_encoder_out,  # masked T X batch x C
-                            'encoder_padding_mask': ~mask,  # B x T, this mask sets padding to be True
-                            'encoder_embedding': text_encoder_out['encoder_embedding']  # B x T x C
-                            }
-            diff = 0
+            quantize = text_conv_out
+            diff = text_conv_out.new_zeros(1)
             quantize_stats = {}
+
+        if self.bottom_latent_encoder is not None:
+            quantize = self.bottom_latent_encoder(src_encodings=quantize, encoder_padding_mask=~mask)
+
+        quantize_out = {'encoder_out': quantize,  # masked T X batch x C
+                        'encoder_padding_mask': ~mask,  # B x T, this mask sets padding to be True
+                        'encoder_embedding': text_encoder_out['encoder_embedding']  # B x T x C
+                        }
 
         decoder_out = self.decoder(src_tokens, encoder_out=quantize_out)
         logits = decoder_out[0]

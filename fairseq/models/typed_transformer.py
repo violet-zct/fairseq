@@ -121,7 +121,7 @@ class TransformerEncoder(FairseqEncoder):
             encoder_embedding = None
             x = src_encodings
             if self.embed_positions is not None:
-                x = x + self.embed_positions(src_tokens)
+                x = x + self.embed_positions(src_tokens).transpose(0, 1)
             x = F.dropout(x, p=self.dropout, training=self.training)
 
         encoder_states = [] if return_all_hiddens else None
