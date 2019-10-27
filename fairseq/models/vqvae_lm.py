@@ -98,17 +98,19 @@ class Quantize(nn.Module):
 
         # todo: this is for debugging, comment it later
         stats = {}
-        batch = embed_ind.size(1)
-        lengths = torch.sum(input_mask, dim=0)
-        avg = input.new_zeros((batch))
-        masked_embed_inds = embed_ind * input_mask.type_as(embed_ind) + torch.ones_like(embed_ind) * -1 * (1 - input_mask.type_as(embed_ind))
-        for ii in range(batch):
-            avg[ii] = len(torch.unique(masked_embed_inds[:, ii])) - 1
-        tot_unique_per_batch = len(torch.unique(masked_embed_inds)) - 1
-        avg_unique_per_example = torch.sum(avg / lengths.type_as(avg)) / batch
-        stats['tot unique latents per batch'] = tot_unique_per_batch
-        stats['avg unique latents per example'] = avg_unique_per_example
+        # batch = embed_ind.size(1)
+        # lengths = torch.sum(input_mask, dim=0)
+        # avg = input.new_zeros((batch))
+        # masked_embed_inds = embed_ind * input_mask.type_as(embed_ind) + torch.ones_like(embed_ind) * -1 * (1 - input_mask.type_as(embed_ind))
+        # for ii in range(batch):
+        #     avg[ii] = len(torch.unique(masked_embed_inds[:, ii])) - 1
+        # tot_unique_per_batch = len(torch.unique(masked_embed_inds)) - 1
+        # avg_unique_per_example = torch.sum(avg / lengths.type_as(avg)) / batch
+        # stats['tot unique latents per batch'] = tot_unique_per_batch
+        # stats['avg unique latents per example'] = avg_unique_per_example
 
+        effective_units = 1.0 / embed_onehot[input_mask.view(-1)].mean(0).pow(2).sum()
+        stats['effective latents per batch'] = effective_units
         if self.training:
             unmasked_flatten = torch.masked_select(flatten, input_mask.view(-1, 1)).contiguous().view(-1, self.dim)  # num_latents x C
             unmasked_embed_onehot = torch.masked_select(embed_onehot, input_mask.view(-1, 1)).contiguous().view(-1, self.n_embed)  # num_latents x K
