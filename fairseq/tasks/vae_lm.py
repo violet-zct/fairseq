@@ -28,6 +28,12 @@ class VQVAELanguageModelingTask(LanguageModelingTask):
     #     """Add task-specific arguments to the parser."""
     #     # fmt: off
 
+    def extract_codes(self, sample, model):
+        model.eval()
+        tokens, lengths = sample['target'], sample['net_input']['src_length']
+        emb_inds = model.extract_codes(tokens, lengths) # B x T
+        return emb_inds
+
     def inference_step(self, generator, models, sample, prefix_tokens=None):
         with torch.no_grad():
             if prefix_tokens is None and sample["net_input"]["src_tokens"].nelement():

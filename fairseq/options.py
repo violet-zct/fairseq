@@ -48,6 +48,13 @@ def get_eval_lm_parser(default_task='language_modeling'):
     return parser
 
 
+def get_eval_vqvae_parser(default_task=None):
+    parser = get_parser('Evaluate (or extract codes) VQVAE Model', default_task)
+    add_dataset_args(parser, gen=True)
+    add_eval_vqvae_args(parser)
+    return parser
+
+
 def get_validation_parser(default_task=None):
     parser = get_parser('Validation', default_task)
     add_dataset_args(parser, train=True)
@@ -428,6 +435,15 @@ def add_common_eval_args(group):
     group.add_argument('--results-path', metavar='RESDIR', type=str, default=None,
                        help='path to save eval results (optional)"')
     # fmt: on
+
+
+def add_eval_vqvae_args(parser):
+    group = parser.add_argument_group('VQVAE Evaluation')
+    add_common_eval_args(group)
+    group.add_argument('--vqvae-path', metavar='FILE',
+                       help='path to VQVAE model file, used for code extraction and generation')
+    # group.add_argument("--prior-path", metavar='FILE',
+    #                    help='path to autoregressive prior path')
 
 
 def add_eval_lm_args(parser):
