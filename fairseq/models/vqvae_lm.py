@@ -262,6 +262,15 @@ class VQVAE(FairseqLanguageModel):
 
         parser.add_argument('--drop-word-prob', type=float,
                             help='probability of drop words of decoder inputs')
+
+        # other discrete variables
+        parser.add_argument('--use-global-quantant', type=int,
+                            help='if use bos to create global quantization vector')
+        parser.add_argument('--global-latent-dim', type=int,
+                            help='global representaion code book dimension')
+        parser.add_argument('--global-latent-k', type=int,
+                            help='global code book size')
+
         # ablations
         parser.add_argument('--pretrain-steps', type=int, metavar='N')
         parser.add_argument('--use-latent', type=int, metavar='N')
@@ -318,7 +327,12 @@ class VQVAE(FairseqLanguageModel):
             bottom_quantizer = cls.build_quantizer(args)
         else:
             bottom_quantizer = None
-        return VQVAE(args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer, bottom_latent_encoder)
+
+        if args.use_global_quantant:
+            global_quantizer = Quantize(args.global_latent_dim, args.global_latent_k)
+        else:
+            global_quantizer = None
+        return VQVAE(args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer, bottom_latent_encoder, global_quantizer)
 
     @classmethod
     def build_encoder(cls, args, src_dict, embed_tokens):
@@ -481,6 +495,10 @@ def base_architecture(args):
     args.drop_word_prob = getattr(args, 'drop_word_prob', 0.0)
     args.use_latent = getattr(args, 'use_latent', 1)
     args.pretrain_steps = getattr(args, 'pretrain_steps', -1)
+
+    args.use_global_quantant = getattr(args, 'use_global_quantant', 0)
+    args.global_latent_dim = getattr(args, 'global_latent_dim', args.bottom_latent_dim)
+    args.global_latent_k = getattr(args, 'global_latent_k', args.bottom_latent_k // 8)
 
 @register_model_architecture('vqvae_lm', "vqvae_lm_base")
 def vqvae_base(args):
