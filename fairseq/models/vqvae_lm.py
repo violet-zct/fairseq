@@ -359,6 +359,8 @@ class VQVAE(FairseqLanguageModel):
         batch = src_tokens.size(0)
         src_masks = src_tokens.eq(self.pad_index)
         full_length = src_tokens.size(1)
+        if full_length <= 2:
+            return src_tokens
         mask_lengths = (lengths.float() * self.word_drop_rate).long()
         mask = torch.arange(full_length).to(src_tokens.device).unsqueeze(0).expand(batch, full_length).ge(
             mask_lengths.unsqueeze(1))
@@ -366,7 +368,7 @@ class VQVAE(FairseqLanguageModel):
         scores = src_tokens.clone().float().uniform_()
         scores.masked_fill(src_masks, 0)
         sorted_values, sorted_idx = torch.sort(scores, dim=-1, descending=True)
-        mask = mask.scatter(1, sorted_idx, mask)
+        mask = mask.scatter(1, sorted_idx, mask)  # 0 are dropped words
         src_tokens[(1 - mask).bool()] = self.pad_index
         return src_tokens
 
