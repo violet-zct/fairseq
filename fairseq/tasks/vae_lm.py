@@ -30,7 +30,7 @@ class VQVAELanguageModelingTask(LanguageModelingTask):
 
     def extract_codes(self, sample, model):
         model.eval()
-        tokens, lengths = sample['target'], sample['net_input']['src_length']
+        tokens, lengths = sample['target'], sample['net_input']['src_lengths']
         emb_inds = model.extract_codes(tokens, lengths) # B x T
         return emb_inds
 

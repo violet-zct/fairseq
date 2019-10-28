@@ -162,7 +162,7 @@ class VQVAE(FairseqLanguageModel):
         self.bottom_conv_kernel_size, self.bottom_conv_strides = \
             parse_kernel_and_strides(args.bottom_conv_kernel_size, args.bottom_conv_stride)
 
-        self.pad_index = text_decoder.padding_index
+        self.pad_index = text_decoder.padding_idx
         self.word_drop_rate = args.drop_word_prob
         self.pretrain_steps = args.pretrain_steps
 

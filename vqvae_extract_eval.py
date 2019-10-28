@@ -44,7 +44,7 @@ def main(args, override_args=None):
     criterion = task.build_criterion(model_args)
     criterion.eval()
 
-    fcodes = io.open(os.path.join(args.results_path, args.gen_subset + ".codes"), "w", encoding='utf-8')
+    fcodes = io.open(os.path.join(args.results_path, args.valid_subset + ".codes"), "w", encoding='utf-8')
     dictionary = task.dictionary
 
     # Load valid dataset (we load training data below, based on the latest checkpoint)
