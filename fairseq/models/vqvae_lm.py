@@ -476,6 +476,7 @@ def base_architecture(args):
     args.bottom_encoder_layers = getattr(args, 'bottom_encoder_layers', 3)
     args.bottom_encoder_attention_heads = getattr(args, 'bottom_encoder_attention_heads', 4)
 
+    args.drop_word_prob = getattr(args, 'drop_word_prob', 0.0)
     args.use_latent = getattr(args, 'use_latent', 1)
     args.pretrain_steps = getattr(args, 'pretrain_steps', -1)
 

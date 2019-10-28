@@ -98,7 +98,7 @@ def main(args, override_args=None):
 
 
 def cli_main():
-    parser = options.get_validation_parser()
+    parser = options.get_eval_vqvae_parser()
     args = options.parse_args_and_arch(parser)
 
     # only override args that are explicitly given on the command line
