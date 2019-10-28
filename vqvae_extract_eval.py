@@ -90,10 +90,12 @@ def main(args, override_args=None):
                     continue
                 bpe_string = dictionary.string(tokens, bpe_symbol=None, escape_unk=True)
                 code = codes[i]
-                fcodes.write('T-bpe-{}\t{}'.format(sample_id, bpe_string))
-                fcodes.write('T-ori-{}\t{}'.format(sample_id, origin_string))
-                fcodes.write('C-{}\t{}'.format(sample_id,
+                fcodes.write('T-bpe-{}\t{}\n'.format(sample_id, bpe_string))
+                fcodes.write('T-ori-{}\t{}\n'.format(sample_id, origin_string))
+                fcodes.write('C-{}\t{}\n'.format(sample_id,
                                                ' '.join(str(x) for x in code.tolist())))
+            if i % 100000 == 0:
+                print("Processed {} lines!".format(i))
         fcodes.close()
         progress.print(log_outputs[0], tag=subset, step=i)
 
