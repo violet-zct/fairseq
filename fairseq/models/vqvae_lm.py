@@ -359,7 +359,7 @@ class VQVAE(FairseqLanguageModel):
         batch = src_tokens.size(0)
         src_masks = src_tokens.eq(self.pad_index)
         full_length = src_tokens.size(1)
-        mask_lengths = lengths.float() * self.word_drop_rate
+        mask_lengths = (lengths.float() * self.word_drop_rate).long()
         mask = torch.arange(full_length).to(src_tokens.device).unsqueeze(0).expand(batch, full_length).ge(
             mask_lengths.unsqueeze(1))
         mask = mask.long()
@@ -367,7 +367,7 @@ class VQVAE(FairseqLanguageModel):
         scores.masked_fill(src_masks, 0)
         sorted_values, sorted_idx = torch.sort(scores, dim=-1, descending=True)
         mask = mask.scatter(1, sorted_idx, mask)
-        src_tokens[(1 - mask).byte()] = self.pad_index
+        src_tokens[(1 - mask).bool()] = self.pad_index
         return src_tokens
 
     def forward(self, decoder_tokens, lengths, full_tokens, update_steps, **kwargs):
@@ -407,8 +407,8 @@ class VQVAE(FairseqLanguageModel):
                         }
 
         if self.training and self.word_drop_rate > 0.0:
-            src_tokens = self.mask_words(decoder_tokens, lengths)
-        decoder_out = self.decoder(src_tokens, encoder_out=quantize_out)
+            decoder_tokens = self.mask_words(decoder_tokens, lengths)
+        decoder_out = self.decoder(decoder_tokens, encoder_out=quantize_out)
         logits = decoder_out[0]
         return logits, diff, quantize_stats
         # todo: extract codes
