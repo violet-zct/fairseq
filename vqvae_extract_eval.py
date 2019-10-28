@@ -83,10 +83,11 @@ def main(args, override_args=None):
             progress.log(log_output, step=i)
             log_outputs.append(log_output)
 
-
             for i, sample_id in enumerate(sample['id'].tolist()):
                 tokens = utils.strip_pad(sample['target'][i, :], dictionary.pad())
                 origin_string = dictionary.string(tokens, bpe_symbol=args.remove_bpe, escape_unk=True)
+                if len(tokens) <= 1:
+                    continue
                 bpe_string = dictionary.string(tokens, bpe_symbol=None, escape_unk=True)
                 code = codes[i]
                 fcodes.write('T-bpe-{}\t{}'.format(sample_id, bpe_string))
