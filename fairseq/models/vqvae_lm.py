@@ -63,13 +63,17 @@ class ConvEncoder(nn.Module):
 
 
 class Quantize(nn.Module):
-    def __init__(self, dim, n_embed, decay=0.99, eps=1e-5):
+    def __init__(self, dim, n_embed, decay=0.99, eps=1e-5, soft_em=False, tau=1.0, samples=5):
         super().__init__()
 
         self.dim = dim
         self.n_embed = n_embed
         self.decay = decay
         self.eps = eps
+
+        self.soft = soft_em
+        self.tau = tau
+        self.samples = samples
 
         embed = torch.randn(dim, n_embed)
         self.register_buffer('embed', embed)
@@ -86,14 +90,17 @@ class Quantize(nn.Module):
         flatten = input.reshape(-1, self.dim)  # S x C
         dist = (
             flatten.pow(2).sum(1, keepdim=True)  # S x 1
-            - 2 * flatten @ self.embed   # S x C @ C x S
-            + self.embed.pow(2).sum(0, keepdim=True)  # 1 x S
+            - 2 * flatten @ self.embed   # S x C @ C x K
+            + self.embed.pow(2).sum(0, keepdim=True)  # 1 x K
         )
-        _, embed_ind = (-dist).max(1)  # S
-        embed_onehot = F.one_hot(embed_ind, self.n_embed).type(
-            flatten.dtype)  # S x K
 
-        embed_ind = embed_ind.view(*input.shape[:-1])  # T x batch
+        if self.soft:
+            embed_ind = torch.multinomial(F.softmax(-dist / self.tau, -1), self.samples, replacement=True)  # S x samples
+            embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten).mean(1)  # S x samples x K
+        else:
+            _, embed_ind = (-dist).max(1)  # S
+            embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten)  # S x K
+
         quantize = self.embed_code(embed_ind)  # T X batch x C
 
         # todo: this is for debugging, comment it later
@@ -236,6 +243,12 @@ class VQVAE(FairseqLanguageModel):
                             help='bottom code book dimension')
         parser.add_argument('--bottom-latent-k', type=int,
                             help='bottom code book size')
+        parser.add_argument('--bottom-soft-em', type=int,
+                            help='use soft EM for bottom latent codes')
+        parser.add_argument('--bottom-temp', type=float,
+                            help='0 < tau < 1, makes the softmax sharper; tau > 1, makes the softmax smoother')
+        parser.add_argument('--bottom-samples', type=int,
+                            help='number of samples used in multinomial distribution to create soft samples')
 
         # todo: condition (attention) on the top level discrete representations and add condition to the typed TransformerEncoderLayer
         # arguments for the bottom level discrete latent variable encoder (transformer)
@@ -270,6 +283,12 @@ class VQVAE(FairseqLanguageModel):
                             help='global representaion code book dimension')
         parser.add_argument('--global-latent-k', type=int,
                             help='global code book size')
+        parser.add_argument('--global-soft-em', type=int,
+                            help='use soft em for global latent codes')
+        parser.add_argument('--global-temp', type=float,
+                            help='0 < tau < 1, makes the softmax sharper; tau > 1, makes the softmax smoother')
+        parser.add_argument('--global-samples', type=int,
+                            help='number of samples used in multinomial distribution to create soft samples')
 
         # ablations
         parser.add_argument('--pretrain-steps', type=int, metavar='N')
@@ -329,7 +348,9 @@ class VQVAE(FairseqLanguageModel):
             bottom_quantizer = None
 
         if args.use_global_quantant:
-            global_quantizer = Quantize(args.global_latent_dim, args.global_latent_k)
+            global_quantizer = Quantize(args.global_latent_dim, args.global_latent_k,
+                                        soft_em=args.global_soft_em, tau=args.global_temp,
+                                        samples=args.global_samples)
         else:
             global_quantizer = None
         return VQVAE(args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer, bottom_latent_encoder, global_quantizer)
@@ -352,7 +373,9 @@ class VQVAE(FairseqLanguageModel):
 
     @classmethod
     def build_quantizer(cls, args):
-        bottom_quantizer = Quantize(args.bottom_latent_dim, args.bottom_latent_k)
+        bottom_quantizer = Quantize(args.bottom_latent_dim, args.bottom_latent_k,
+                                    soft_em=args.bottom_soft_em, tau=args.bottom_temp,
+                                    samples=args.bottom_samples)
         return bottom_quantizer
 
     @classmethod
@@ -371,7 +394,7 @@ class VQVAE(FairseqLanguageModel):
 
     def mask_words(self, src_tokens, lengths):
         batch = src_tokens.size(0)
-        src_masks = src_tokens.eq(self.pad_index)
+        src_masks = src_tokens.eq(self.pad_index) | src_tokens.eq(self.decoder.dictionary.eos())
         full_length = src_tokens.size(1)
         if full_length <= 2:
             return src_tokens
@@ -446,6 +469,11 @@ class VQVAE(FairseqLanguageModel):
         # quantize: masked T X batch x C; diff: scalar; embed_ind: T x batch
         quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out,
                                                                           mask.transpose(0, 1).contiguous())
+
+        if self.bottom_quantizer.soft:
+            _, embed_ind = F.one_hot(embed_ind, self.bottom_quantizer.n_embed).sum(1).max(1)
+
+        embed_ind = embed_ind.view(*text_conv_out.shape[:-1])  # T x batch
         return embed_ind.transpose(0, 1).masked_fill(~mask, -1)
 
 
@@ -486,6 +514,9 @@ def base_architecture(args):
     args.bottom_conv_stride = getattr(args, 'bottom_conv_stride', '2,2')
     args.bottom_latent_dim = getattr(args, 'bottom_latent_dim', args.encoder_embed_dim)
     args.bottom_latent_k = getattr(args, 'bottom_latent_k', 4096)
+    args.bottom_soft_em = getattr(args, 'bottom_soft_em', 0)
+    args.bottom_temp = getattr(args, 'bottom_temp', 1.)
+    args.bottom_samples = getattr(args, 'bottom_samples', 5)
 
     args.use_bottom_quantants_encoder = getattr(args, 'use_bottom_quantants_encoder', 0)
     args.bottom_encoder_ffn_embed_dim = getattr(args, 'bottom_encoder_ffn_embed_dim', 1024)
@@ -499,6 +530,10 @@ def base_architecture(args):
     args.use_global_quantant = getattr(args, 'use_global_quantant', 0)
     args.global_latent_dim = getattr(args, 'global_latent_dim', args.bottom_latent_dim)
     args.global_latent_k = getattr(args, 'global_latent_k', args.bottom_latent_k // 8)
+    args.global_soft_em = getattr(args, 'global_soft_em', 0)
+    args.global_temp = getattr(args, 'global_temp', 1.)
+    args.global_samples = getattr(args, 'global_samples', 5)
+
 
 @register_model_architecture('vqvae_lm', "vqvae_lm_base")
 def vqvae_base(args):
