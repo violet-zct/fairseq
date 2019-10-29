@@ -93,7 +93,7 @@ class TransformerEncoderLayer(nn.Module):
         # will become -inf, which results in NaN in model parameters
         # TODO: to formally solve this problem, we need to change fairseq's
         # MultiheadAttention. We will do this later on.
-        x, _ = self.self_attn(query=x, key=x, value=x, key_padding_mask=encoder_padding_mask)
+        x, _ = self.self_attn(query=x, key=x, value=x, key_padding_mask=encoder_padding_mask, attn_mask=attn_mask)
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = residual + x
         x = self.maybe_layer_norm(self.self_attn_layer_norm, x, after=True)

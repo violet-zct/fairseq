@@ -84,7 +84,7 @@ class TransformerEncoder(FairseqEncoder):
         x = F.dropout(x, p=self.dropout, training=self.training)
         return x, embed
 
-    def forward(self, src_tokens=None, cls_input=None, return_all_hiddens=False, src_encodings=None, encoder_padding_mask=None):
+    def forward(self, src_tokens=None, cls_input=None, return_all_hiddens=False, src_encodings=None, encoder_padding_mask=None, attn_mask=None):
         """
         Args:
             src_tokens (LongTensor): tokens in the source language of shape
@@ -128,7 +128,7 @@ class TransformerEncoder(FairseqEncoder):
 
         # encoder layers
         for layer in self.layers:
-            x = layer(x, encoder_padding_mask)
+            x = layer(x, encoder_padding_mask, attn_mask=attn_mask)
             if return_all_hiddens:
                 encoder_states.append(x)
 

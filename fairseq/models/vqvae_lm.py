@@ -10,6 +10,8 @@ from fairseq.models.typed_transformer import (
     TransformerDecoder,
 )
 
+from fairseq.modules import PositionalEmbedding
+
 import torch
 from torch.nn import functional as F
 from torch import nn
@@ -86,7 +88,7 @@ class Quantize(nn.Module):
     def get_temperature(self, updates):
         return self.min_temp if updates >= self.anneal_steps else ((updates * 1.0 / self.anneal_steps) * self.diff_temp + self.min_temp)
 
-    def forward(self, input, input_mask, updates=-1):
+    def forward(self, input, input_mask, updates=-1, prefix=""):
         '''
         :param input: T x batch x C, number of channels: dimension C
         :param input_mask: T x batch
@@ -124,7 +126,7 @@ class Quantize(nn.Module):
         # stats['avg unique latents per example'] = avg_unique_per_example
 
         effective_units = 1.0 / embed_onehot[input_mask.view(-1)].mean(0).pow(2).sum()
-        stats['effective latents per batch'] = effective_units
+        stats[prefix + 'effective latents per batch'] = effective_units
         if self.training:
             unmasked_flatten = torch.masked_select(flatten, input_mask.view(-1, 1)).contiguous().view(-1, self.dim)  # num_latents x C
             unmasked_embed_onehot = torch.masked_select(embed_onehot, input_mask.view(-1, 1)).contiguous().view(-1, self.n_embed)  # num_latents x K
@@ -149,8 +151,8 @@ class Quantize(nn.Module):
             embed_normalized = self.embed_avg / cluster_size.unsqueeze(0)
             self.embed.data.copy_(embed_normalized)
 
-            stats['moving_avg_cluster_mean'] = torch.mean(self.cluster_size)
-            stats['moving_avg_cluster_var'] = torch.var(self.cluster_size)
+            stats[prefix + 'moving_avg_cluster_mean'] = torch.mean(self.cluster_size)
+            stats[prefix + 'moving_avg_cluster_var'] = torch.var(self.cluster_size)
 
         input_mask = input_mask.type_as(input)
         quantize = quantize * input_mask.unsqueeze(-1)
@@ -177,9 +179,17 @@ class VQVAE(FairseqLanguageModel):
         self.bottom_conv_kernel_size, self.bottom_conv_strides = \
             parse_kernel_and_strides(args.bottom_conv_kernel_size, args.bottom_conv_stride)
 
+        self.add_latent_position = args.add_latent_positions
+        if self.add_latent_position:
+            self.latent_positional_embedding = PositionalEmbedding(
+            DEFAULT_MAX_SOURCE_POSITIONS, self.bottom_latent_encoder.dim, self.padding_idx,
+            learned=args.decoder_learned_pos,
+        )
+
         self.pad_index = text_decoder.padding_idx
         self.word_drop_rate = args.drop_word_prob
         self.pretrain_steps = args.pretrain_steps
+        self.encoder_context_window = args.context_window
 
     @staticmethod
     def add_args(parser):
@@ -300,7 +310,8 @@ class VQVAE(FairseqLanguageModel):
         # ablations
         parser.add_argument('--pretrain-steps', type=int, metavar='N')
         parser.add_argument('--use-latent', type=int, metavar='N')
-
+        parser.add_argument('--add-latent-positions', type=int)
+        parser.add_argument('--context-window', type=int, default=0)
         # fmt: on
 
     @classmethod
@@ -358,7 +369,8 @@ class VQVAE(FairseqLanguageModel):
             global_quantizer = Quantize(args, args.global_latent_dim, args.global_latent_k)
         else:
             global_quantizer = None
-        return VQVAE(args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer, bottom_latent_encoder, global_quantizer)
+        return VQVAE(args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer, bottom_latent_encoder,
+                     global_quantizer)
 
     @classmethod
     def build_encoder(cls, args, src_dict, embed_tokens):
@@ -412,6 +424,16 @@ class VQVAE(FairseqLanguageModel):
         src_tokens[(1 - mask).bool()] = self.pad_index
         return src_tokens
 
+    def create_mask(self, tokens):
+        if self.encoder_context_window == 0:
+            return None
+        else:
+            T = tokens.size(2)
+            a = torch.arange(T).type_as(tokens).unsqueeze(0).expand(T, T)
+            b = (torch.arange(T).type_as(tokens) - self.encoder_context_window).unsqueeze(1).expand(T, T)
+            c = (torch.arange(T).type_as(tokens) + self.encoder_context_window).unsqueeze(1).expand(T, T)
+            return ~(a <= c | a >= b)
+
     def forward(self, decoder_tokens, lengths, full_tokens, update_steps, **kwargs):
         """
         output of text encoder
@@ -422,9 +444,14 @@ class VQVAE(FairseqLanguageModel):
             'encoder_states': encoder_states,  # List[T x B x C]
         }
         """
-        text_encoder_out = self.text_encoder(full_tokens)
-        encoding_mask = (~text_encoder_out['encoder_padding_mask']).type_as(text_encoder_out['encoder_out'])
-        conv_inpt = text_encoder_out['encoder_out'] * (encoding_mask.transpose(0, 1).unsqueeze(-1)) # T x B x C
+        encoder_attn_mask = self.create_mask(full_tokens)
+        text_encoder_out = self.text_encoder(full_tokens, attn_mask=encoder_attn_mask)
+        encodings = text_encoder_out['encoder_out']
+
+        #encoding_mask = (~text_encoder_out['encoder_padding_mask']).type_as(text_encoder_out['encoder_out'])
+        encoding_mask = (~(full_tokens.eq(self.pad_index) | full_tokens.eq(self.decoder.dictionary.bos()))).type_as(text_encoder_out['encoder_out'])
+        conv_inpt = encodings * (encoding_mask.transpose(0, 1).unsqueeze(-1)) # T x B x C
+
         # the output mask sets padding to be False
         # text_conv_out: T' x batch x C'
         # mask: batch x T'
@@ -442,6 +469,22 @@ class VQVAE(FairseqLanguageModel):
         if self.bottom_latent_encoder is not None:
             quantize = self.bottom_latent_encoder(src_encodings=quantize, encoder_padding_mask=~mask)
             quantize = quantize['encoder_out']
+
+        if self.global_quantizer is not None:
+            dummy_mask = text_encoder_out['encoder_padding_mask'].new_ones((encodings.size(1), 1))  # B x 1
+            global_quantize, global_diff, global_embed_ind, \
+            global_quantize_stats = self.global_quantizer(text_conv_out.mean(0).unsqueeze(0), # 1 x B x C
+                                                        dummy_mask,
+                                                        updates=update_steps, prefix="global_")
+            diff = diff + global_diff
+            quantize_stats.update(global_quantize_stats)
+            quantize = torch.cat([global_quantize, quantize], dim=0)
+            mask = torch.cat([dummy_mask, mask], dim=1)
+
+        if self.add_latent_position:
+            dummy_batch = full_tokens.new_zeros((quantize.size(0), quantize.size(1))).masked_fill(~mask.transpose(0, 1),
+                                                                                                  self.pad_index)
+            quantize = quantize + self.latent_positional_embedding(dummy_batch)
 
         quantize_out = {'encoder_out': quantize,  # masked T X batch x C
                         'encoder_padding_mask': ~mask,  # B x T, this mask sets padding to be True
