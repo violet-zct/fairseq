@@ -96,12 +96,12 @@ class Quantize(nn.Module):
 
         if self.soft:
             embed_ind = torch.multinomial(F.softmax(-dist / self.tau, -1), self.samples, replacement=True)  # S x samples
-            embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten).mean(1)  # S x samples x K
+            embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten).mean(1)  # S x samples x K -> S x K
+            quantize = (embed_onehot @ self.embed.transpose(0, 1)).view(input.size(0), input.size(1), self.dim)
         else:
             _, embed_ind = (-dist).max(1)  # S
             embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten)  # S x K
-
-        quantize = self.embed_code(embed_ind)  # T X batch x C
+            quantize = self.embed_code(embed_ind)  # T X batch x C
 
         # todo: this is for debugging, comment it later
         stats = {}
@@ -159,12 +159,13 @@ class Quantize(nn.Module):
 
 @register_model('vqvae_lm')
 class VQVAE(FairseqLanguageModel):
-    def __init__(self, args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer, bottom_latent_encoder):
+    def __init__(self, args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer, bottom_latent_encoder, global_quantizer):
         super().__init__(text_decoder)
         self.text_encoder = text_encoder
         self.text_conv_encoder = text_conv_encoder
         self.bottom_quantizer = bottom_quantizer
         self.bottom_latent_encoder = bottom_latent_encoder
+        self.global_quantizer = global_quantizer
 
         self.bottom_conv_kernel_size, self.bottom_conv_strides = \
             parse_kernel_and_strides(args.bottom_conv_kernel_size, args.bottom_conv_stride)
@@ -394,7 +395,7 @@ class VQVAE(FairseqLanguageModel):
 
     def mask_words(self, src_tokens, lengths):
         batch = src_tokens.size(0)
-        src_masks = src_tokens.eq(self.pad_index) | src_tokens.eq(self.decoder.dictionary.eos())
+        src_masks = src_tokens.eq(self.pad_index) | src_tokens.eq(self.decoder.dictionary.bos())
         full_length = src_tokens.size(1)
         if full_length <= 2:
             return src_tokens
@@ -403,7 +404,7 @@ class VQVAE(FairseqLanguageModel):
             mask_lengths.unsqueeze(1))
         mask = mask.long()
         scores = src_tokens.clone().float().uniform_()
-        scores.masked_fill(src_masks, 0)
+        scores.masked_fill_(src_masks, -1)
         sorted_values, sorted_idx = torch.sort(scores, dim=-1, descending=True)
         mask = mask.scatter(1, sorted_idx, mask)  # 0 are dropped words
         src_tokens[(1 - mask).bool()] = self.pad_index
@@ -450,7 +451,6 @@ class VQVAE(FairseqLanguageModel):
         decoder_out = self.decoder(decoder_tokens, encoder_out=quantize_out)
         logits = decoder_out[0]
         return logits, diff, quantize_stats
-        # todo: extract codes
 
         # todo: prior model - one decoder, one encoder-decoder
         # todo: sampling + task
