@@ -179,14 +179,15 @@ class VQVAE(FairseqLanguageModel):
         self.bottom_conv_kernel_size, self.bottom_conv_strides = \
             parse_kernel_and_strides(args.bottom_conv_kernel_size, args.bottom_conv_stride)
 
+        self.pad_index = text_decoder.padding_idx
+
         self.add_latent_position = args.add_latent_positions
         if self.add_latent_position:
             self.latent_positional_embedding = PositionalEmbedding(
-            DEFAULT_MAX_SOURCE_POSITIONS, self.bottom_latent_encoder.dim, self.padding_idx,
+            DEFAULT_MAX_SOURCE_POSITIONS, self.bottom_quantizer.dim, self.pad_index,
             learned=args.decoder_learned_pos,
         )
 
-        self.pad_index = text_decoder.padding_idx
         self.word_drop_rate = args.drop_word_prob
         self.pretrain_steps = args.pretrain_steps
         self.encoder_context_window = args.context_window
@@ -428,11 +429,11 @@ class VQVAE(FairseqLanguageModel):
         if self.encoder_context_window == 0:
             return None
         else:
-            T = tokens.size(2)
+            T = tokens.size(1)
             a = torch.arange(T).type_as(tokens).unsqueeze(0).expand(T, T)
             b = (torch.arange(T).type_as(tokens) - self.encoder_context_window).unsqueeze(1).expand(T, T)
             c = (torch.arange(T).type_as(tokens) + self.encoder_context_window).unsqueeze(1).expand(T, T)
-            return ~(a <= c | a >= b)
+            return (~((a <= c) | (a >= b))).float()
 
     def forward(self, decoder_tokens, lengths, full_tokens, update_steps, **kwargs):
         """
@@ -471,7 +472,7 @@ class VQVAE(FairseqLanguageModel):
             quantize = quantize['encoder_out']
 
         if self.global_quantizer is not None:
-            dummy_mask = text_encoder_out['encoder_padding_mask'].new_ones((encodings.size(1), 1))  # B x 1
+            dummy_mask = text_encoder_out['encoder_padding_mask'].new_ones((1,  encodings.size(1)))  # B x 1
             global_quantize, global_diff, global_embed_ind, \
             global_quantize_stats = self.global_quantizer(text_conv_out.mean(0).unsqueeze(0), # 1 x B x C
                                                         dummy_mask,
@@ -479,7 +480,7 @@ class VQVAE(FairseqLanguageModel):
             diff = diff + global_diff
             quantize_stats.update(global_quantize_stats)
             quantize = torch.cat([global_quantize, quantize], dim=0)
-            mask = torch.cat([dummy_mask, mask], dim=1)
+            mask = torch.cat([dummy_mask.transpose(0, 1), mask], dim=1)
 
         if self.add_latent_position:
             dummy_batch = full_tokens.new_zeros((quantize.size(0), quantize.size(1))).masked_fill(~mask.transpose(0, 1),
