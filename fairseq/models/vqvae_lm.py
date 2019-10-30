@@ -575,6 +575,8 @@ def base_architecture(args):
     args.drop_word_prob = getattr(args, 'drop_word_prob', 0.0)
     args.use_latent = getattr(args, 'use_latent', 1)
     args.pretrain_steps = getattr(args, 'pretrain_steps', -1)
+    args.add_latent_positions = getattr(args, 'add_latent_positions', 0)
+    args.context_window = getattr(args, 'context_window', 0)
 
     args.use_global_quantant = getattr(args, 'use_global_quantant', 0)
     args.global_latent_dim = getattr(args, 'global_latent_dim', args.bottom_latent_dim)

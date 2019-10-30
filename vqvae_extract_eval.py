@@ -93,7 +93,7 @@ def main(args, override_args=None):
                 fcodes.write('T-bpe-{}\t{}\n'.format(sample_id, bpe_string))
                 fcodes.write('T-ori-{}\t{}\n'.format(sample_id, origin_string))
                 fcodes.write('C-{}\t{}\n'.format(sample_id,
-                                               ' '.join(str(x) for x in code.tolist())))
+                                               ' '.join([str(x) for x in code.tolist() if x != -1])))
             if i % 100000 == 0:
                 print("Processed {} lines!".format(i))
         fcodes.close()
