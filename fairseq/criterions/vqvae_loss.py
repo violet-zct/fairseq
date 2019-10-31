@@ -129,6 +129,6 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
 
         for k in logging_outputs[0].keys():
             if k not in results:
-                results[k] = sum(log[k] for log in logging_outputs) / len(logging_outputs)
+                results[k] = sum(log.get(k, 0) for log in logging_outputs) / len(logging_outputs)
 
         return results
