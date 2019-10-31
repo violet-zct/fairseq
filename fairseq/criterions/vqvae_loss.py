@@ -8,7 +8,7 @@ import math
 from fairseq import utils
 
 from . import FairseqCriterion, register_criterion
-
+import torch
 
 def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=True):
     if target.dim() == lprobs.dim() - 1:
@@ -40,6 +40,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         self.commit_warm_up_steps = args.commitment_cost_warm_up_steps
         self.commit_anneal_steps = args.commitment_cost_anneal_steps
         self.updates = 0
+        self.latent_k = args.bottom_latent_k
 
     @staticmethod
     def add_args(parser):
@@ -82,12 +83,15 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
 
         commitment_loss = commitment_loss * sample_size
         loss = loss + commitment_loss
+        # nll_loss is sum over all the tokens/sentences
+        true_nll_loss = nll_loss + math.log(self.latent_k) * net_output[3]  # net_output[3] is the actual number of codes
 
         quantize_stats = {k: utils.item(v.data) if not isinstance(v, int) else v for k, v in net_output[2].items()}
         logging_output = {
             'loss': utils.item(loss.data) if reduce else loss.data,
             'nll_loss': utils.item(nll_loss.data) if reduce else nll_loss.data,
-            'commit_loss': utils.item(commitment_loss.data) if reduce else commitment_loss.data,
+            'commit_loss': utils.item(commitment_loss.data),
+            'true_nll_loss': utils.item(true_nll_loss.data),
             'ntokens': sample['ntokens'],
             'nsentences': sample['target'].size(0),
             'sample_size': sample_size,
@@ -117,6 +121,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             'loss': sum(log.get('loss', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.,
             'nll_loss': sum(log.get('nll_loss', 0) for log in logging_outputs) / ntokens / math.log(2) if ntokens > 0 else 0.,
             'commit_loss': sum(log.get('commit_loss', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.,
+            'true_nll_loss': sum(log.get('true_nll_loss', 0) for log in logging_outputs) / ntokens / math.log(2) if ntokens > 0 else 0.,
             'ntokens': ntokens,
             'nsentences': nsentences,
             'sample_size': sample_size,

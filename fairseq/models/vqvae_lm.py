@@ -496,7 +496,7 @@ class VQVAE(FairseqLanguageModel):
             decoder_tokens = self.mask_words(decoder_tokens, lengths)
         decoder_out = self.decoder(decoder_tokens, encoder_out=quantize_out)
         logits = decoder_out[0]
-        return logits, diff, quantize_stats
+        return logits, diff, quantize_stats, mask.sum().type_as(diff)
 
         # todo: prior model - one decoder, one encoder-decoder
         # todo: sampling + task

@@ -130,6 +130,8 @@ def train(args, trainer, task, epoch_itr):
                 continue  # these are already logged above
             if 'loss' in k or k == 'accuracy':
                 extra_meters[k].update(v, log_output['sample_size'])
+            elif k == 'true_nll_loss':
+                extra_meters[k].update(v, log_output['ntokens'])
             else:
                 extra_meters[k].update(v)
             stats[k] = extra_meters[k].avg
@@ -155,6 +157,8 @@ def train(args, trainer, task, epoch_itr):
     # log end-of-epoch stats
     stats = get_training_stats(trainer)
     for k, meter in extra_meters.items():
+        if k == "true_nll_loss":
+            stats['true_ppl'] = utils.get_perplexity(meter.avg)
         stats[k] = meter.avg
     progress.print(stats, tag='train', step=stats['num_updates'])
 
@@ -236,11 +240,16 @@ def validate(args, trainer, task, epoch_itr, subsets):
             for k, v in log_output.items():
                 if k in ['loss', 'nll_loss', 'ntokens', 'nsentences', 'sample_size']:
                     continue
-                extra_meters[k].update(v)
+                if k == 'true_nll_loss':
+                    extra_meters[k].update(v, log_output['ntokens'])
+                else:
+                    extra_meters[k].update(v)
 
         # log validation stats
         stats = get_valid_stats(trainer, args, extra_meters)
         for k, meter in extra_meters.items():
+            if k == "true_nll_loss":
+                stats['true_ppl'] = utils.get_perplexity(meter.avg)
             stats[k] = meter.avg
         progress.print(stats, tag=subset, step=trainer.get_num_updates())
 
