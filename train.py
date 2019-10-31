@@ -132,6 +132,7 @@ def train(args, trainer, task, epoch_itr):
                 extra_meters[k].update(v, log_output['sample_size'])
             elif k == 'true_nll_loss':
                 extra_meters[k].update(v, log_output['ntokens'])
+                stats['true_ppl'] = utils.get_perplexity(extra_meters[k].avg)
             else:
                 extra_meters[k].update(v)
             stats[k] = extra_meters[k].avg
