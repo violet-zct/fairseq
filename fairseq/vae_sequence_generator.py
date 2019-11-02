@@ -118,6 +118,9 @@ class VAESequenceGenerator(object):
         self,
         model,
         sample,
+        codes=None,
+        code_masks=None,
+        global_codes=None,
         prefix_tokens=None,
         bos_token=None,
         **kwargs
@@ -127,12 +130,10 @@ class VAESequenceGenerator(object):
 
         # model.forward normally channels prev_output_tokens into the decoder
         # separately, but SequenceGenerator directly calls model.encoder
-        encoder_input = {
-            k: v for k, v in sample['net_input'].items()
-            if k != 'prev_output_tokens'
-        }
 
-        src_tokens = encoder_input['src_tokens']
+        lengths, target_tokens = sample['net_input']['src_lengths'], sample['target']
+
+        src_tokens = target_tokens  # target_tokens are the full sentence
         src_lengths = (src_tokens.ne(self.eos) & src_tokens.ne(self.pad)).long().sum(dim=1)
         input_size = src_tokens.size()
         # batch dimension goes first followed by source lengths
@@ -149,13 +150,17 @@ class VAESequenceGenerator(object):
                 model.max_decoder_positions() - 1,
             )
 
-        # compute the encoder output for each beam
-        encoder_outs = model.forward_encoder(encoder_input)
+        if codes is not None:
+            assert code_masks is not None
+            encoder_outs = model.forward_quantization(codes, code_masks, global_codes)
+        else:
+            # compute the encoder output for each beam
+            encoder_outs = model.forward_encoder(src_tokens, src_lengths)
         new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_size).view(-1)
         new_order = new_order.to(src_tokens.device).long()
         encoder_outs = model.reorder_encoder_out(encoder_outs, new_order)
 
-        # initialize buffers
+        # initialize buffers for decoder
         scores = src_tokens.new(bsz * beam_size, max_len + 1).float().fill_(0)
         scores_buf = scores.clone()
         tokens = src_tokens.new(bsz * beam_size, max_len + 2).long().fill_(self.pad)
@@ -535,10 +540,18 @@ class EnsembleModel(torch.nn.Module):
         return min(m.max_decoder_positions() for m in self.models)
 
     @torch.no_grad()
-    def forward_encoder(self, encoder_input):
+    def forward_encoder(self, source_tokens, lengths):
         if not self.has_encoder():
             return None
-        return [model.encoder(**encoder_input) for model in self.models]
+        encodings = []
+        for model in self.models:
+            _, _, encoder_out, _ =  model.forward_encoder(source_tokens, lengths)
+            encodings.append(encoder_out)
+        return encodings
+
+    @torch.no_grad()
+    def forward_quantization(self, codes, code_mask, global_codes=None):
+        return [model.quantization(codes, code_mask, global_codes) for model in self.models]
 
     @torch.no_grad()
     def forward_decoder(self, tokens, encoder_outs, temperature=1.):
@@ -600,7 +613,7 @@ class EnsembleModel(torch.nn.Module):
         if not self.has_encoder():
             return
         return [
-            model.encoder.reorder_encoder_out(encoder_out, new_order)
+            model.reorder_encoder_out(encoder_out, new_order)
             for model, encoder_out in zip(self.models, encoder_outs)
         ]
 

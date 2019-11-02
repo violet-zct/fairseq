@@ -86,6 +86,8 @@ class Quantize(nn.Module):
         self.register_buffer('embed_avg', embed.clone())
 
     def get_temperature(self, updates):
+        if updates == -1:
+            return self.min_temp
         return self.min_temp if updates >= self.anneal_steps else ((updates * 1.0 / self.anneal_steps) * self.diff_temp + self.min_temp)
 
     def forward(self, input, input_mask, updates=-1, prefix=""):
@@ -299,7 +301,7 @@ class VQVAE(FairseqLanguageModel):
                             help='share decoder input and output embeddings')
 
         parser.add_argument('--drop-word-prob', type=float,
-                            help='probability of drop words of decoder inputs')
+                            help='probability of drop words of decoder inputs')  # todo: remove
 
         # other discrete variables
         parser.add_argument('--use-global-quantant', type=int,
@@ -309,7 +311,7 @@ class VQVAE(FairseqLanguageModel):
         parser.add_argument('--global-latent-k', type=int,
                             help='global code book size')
         # ablations
-        parser.add_argument('--pretrain-steps', type=int, metavar='N')
+        parser.add_argument('--pretrain-steps', type=int, metavar='N')  # todo: remove
         parser.add_argument('--use-latent', type=int, metavar='N')
         parser.add_argument('--add-latent-positions', type=int)
         parser.add_argument('--context-window', type=int, default=0)
@@ -436,32 +438,50 @@ class VQVAE(FairseqLanguageModel):
             return (~((a <= c) | (a >= b))).float()
 
     def forward(self, decoder_tokens, lengths, full_tokens, update_steps, **kwargs):
+        mask, diff, quantize_out, quantize_stats = self.forward_encoder(full_tokens, lengths, update_steps)
+        if self.training and self.word_drop_rate > 0.0:
+            decoder_tokens = self.mask_words(decoder_tokens, lengths)
+        decoder_out = self.decoder(decoder_tokens, encoder_out=quantize_out)
+        logits = decoder_out[0]
+        return logits, diff, quantize_stats, mask.sum().type_as(diff)
+
+        # todo: prior model - one decoder, one encoder-decoder
+        # todo: sampling + task
+
+        # todo: data set processing
+        # todo: hierarchical model
+
+    def forward_encoder(self, full_tokens, lengths, update_steps=-1):
         """
-        output of text encoder
-        {
-            'encoder_out': x,  # T x B x C
-            'encoder_padding_mask': encoder_padding_mask,  # B x T
-            'encoder_embedding': encoder_embedding,  # B x T x C
-            'encoder_states': encoder_states,  # List[T x B x C]
-        }
-        """
+                output of text encoder
+                {
+                    'encoder_out': x,  # T x B x C
+                    'encoder_padding_mask': encoder_padding_mask,  # B x T
+                    'encoder_embedding': encoder_embedding,  # B x T x C
+                    'encoder_states': encoder_states,  # List[T x B x C]
+                }
+                """
         encoder_attn_mask = self.create_mask(full_tokens)
         text_encoder_out = self.text_encoder(full_tokens, attn_mask=encoder_attn_mask)
         encodings = text_encoder_out['encoder_out']
 
-        #encoding_mask = (~text_encoder_out['encoder_padding_mask']).type_as(text_encoder_out['encoder_out'])
-        encoding_mask = (~(full_tokens.eq(self.pad_index) | full_tokens.eq(self.decoder.dictionary.bos()))).type_as(text_encoder_out['encoder_out'])
-        conv_inpt = encodings * (encoding_mask.transpose(0, 1).unsqueeze(-1)) # T x B x C
+        # encoding_mask = (~text_encoder_out['encoder_padding_mask']).type_as(text_encoder_out['encoder_out'])
+        encoding_mask = (~(full_tokens.eq(self.pad_index) | full_tokens.eq(self.decoder.dictionary.bos()))).type_as(
+            text_encoder_out['encoder_out'])
+        conv_inpt = encodings * (encoding_mask.transpose(0, 1).unsqueeze(-1))  # T x B x C
 
-        # the output mask sets padding to be False
+        # !!!!!!!!!!!!! the output mask sets padding to be False
         # text_conv_out: T' x batch x C'
         # mask: batch x T'
-        text_conv_out, mask = self.text_conv_encoder(conv_inpt.permute(1, 2, 0), lengths)  # B x C x T -> T' x B x C', C' = latent_dim
+        text_conv_out, mask = self.text_conv_encoder(conv_inpt.permute(1, 2, 0),
+                                                     lengths)  # B x C x T -> T' x B x C', C' = latent_dim
 
-        if self.bottom_quantizer is not None and update_steps > self.pretrain_steps:
+        if self.bottom_quantizer is not None and (update_steps > self.pretrain_steps or not self.training):
             # diff is the loss to update the enocder
             # quantize: masked T X batch x C; diff: scalar; embed_ind: T x batch
-            quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out, mask.transpose(0, 1).contiguous(), updates=update_steps)
+            quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out,
+                                                                              mask.transpose(0, 1).contiguous(),
+                                                                              updates=update_steps)
         else:
             quantize = text_conv_out
             diff = text_conv_out.new_zeros(1)
@@ -472,11 +492,11 @@ class VQVAE(FairseqLanguageModel):
             quantize = quantize['encoder_out']
 
         if self.global_quantizer is not None:
-            dummy_mask = text_encoder_out['encoder_padding_mask'].new_ones((1,  encodings.size(1)))  # B x 1
+            dummy_mask = text_encoder_out['encoder_padding_mask'].new_ones((1, encodings.size(1)))  # 1 x B
             global_quantize, global_diff, global_embed_ind, \
-            global_quantize_stats = self.global_quantizer(text_conv_out.mean(0).unsqueeze(0), # 1 x B x C
-                                                        dummy_mask,
-                                                        updates=update_steps, prefix="global_")
+            global_quantize_stats = self.global_quantizer(text_conv_out.mean(0).unsqueeze(0),  # 1 x B x C
+                                                          dummy_mask,
+                                                          updates=update_steps, prefix="global_")
             diff = diff + global_diff
             quantize_stats.update(global_quantize_stats)
             quantize = torch.cat([global_quantize, quantize], dim=0)
@@ -491,18 +511,29 @@ class VQVAE(FairseqLanguageModel):
                         'encoder_padding_mask': ~mask,  # B x T, this mask sets padding to be True
                         'encoder_embedding': text_encoder_out['encoder_embedding']  # B x T x C
                         }
+        return mask, diff, quantize_out, quantize_stats
 
-        if self.training and self.word_drop_rate > 0.0:
-            decoder_tokens = self.mask_words(decoder_tokens, lengths)
-        decoder_out = self.decoder(decoder_tokens, encoder_out=quantize_out)
-        logits = decoder_out[0]
-        return logits, diff, quantize_stats, mask.sum().type_as(diff)
+    def reorder_encoder_out(self, encoder_out, new_order):
+        """
+        Reorder encoder output according to *new_order*.
 
-        # todo: prior model - one decoder, one encoder-decoder
-        # todo: sampling + task
+        Args:
+            encoder_out: output from the ``forward()`` method
+            new_order (LongTensor): desired order
 
-        # todo: data set processing
-        # todo: hierarchical model
+        Returns:
+            *encoder_out* rearranged according to *new_order*
+        """
+        if encoder_out['encoder_out'] is not None:
+            encoder_out['encoder_out'] = \
+                encoder_out['encoder_out'].index_select(1, new_order)
+        if encoder_out['encoder_padding_mask'] is not None:
+            encoder_out['encoder_padding_mask'] = \
+                encoder_out['encoder_padding_mask'].index_select(0, new_order)
+        if encoder_out.get('encoder_states', None) is not None:
+            for idx, state in enumerate(encoder_out['encoder_states']):
+                encoder_out['encoder_states'][idx] = state.index_select(1, new_order)
+        return encoder_out
 
     def extract_codes(self, full_tokens, full_lengths):
         text_encoder_out = self.text_encoder(full_tokens)
@@ -521,6 +552,27 @@ class VQVAE(FairseqLanguageModel):
 
         embed_ind = embed_ind.view(*text_conv_out.shape[:-1])  # T x batch
         return embed_ind.transpose(0, 1).masked_fill(~mask, -1)
+
+    def quantization(self, codes, code_mask, global_codes=None):
+        # codes: T x batch; code_mask: batch x T; mask here sets pad to be True
+        # global_codes: batch
+        quantize = self.bottom_quantizer.embed_code(codes)  # T x batch x dim
+
+        if global_codes is not None:
+            global_quantize = self.global_quantizer.embed_code(global_codes.unsqueeze(0))  # 1 x batch x dim
+            dummy_mask = code_mask.new_zeros((code_mask.size(0)))  # B x 1
+            quantize = torch.cat([global_quantize, quantize], dim=0)
+            code_mask = torch.cat([dummy_mask.transpose(0, 1), code_mask], dim=1)
+
+        if self.add_latent_position:
+            dummy_batch = codes.new_zeros((quantize.size(0), quantize.size(1))).masked_fill(code_mask.transpose(0, 1),
+                                                                                                  self.pad_index)
+            quantize = quantize + self.latent_positional_embedding(dummy_batch)
+
+        quantize_out = {'encoder_out': quantize,  # masked T X batch x C
+                        'encoder_padding_mask': code_mask,  # B x T, this mask sets padding to be True
+                        }
+        return quantize_out
 
 
 @register_model_architecture('vqvae_lm', 'vqvae_lm')
