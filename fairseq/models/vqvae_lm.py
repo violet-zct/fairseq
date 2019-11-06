@@ -513,6 +513,10 @@ class VQVAE(FairseqLanguageModel):
                         }
         return mask, diff, quantize_out, quantize_stats
 
+    def forward_decoder(self, decoder_tokens, encoder_out):
+        decoder_out = self.decoder(decoder_tokens, encoder_out=encoder_out)
+        return decoder_out
+
     def reorder_encoder_out(self, encoder_out, new_order):
         """
         Reorder encoder output according to *new_order*.

@@ -51,7 +51,7 @@ def get_eval_lm_parser(default_task='language_modeling'):
 def get_eval_vqvae_parser(default_task=None):
     parser = get_parser('Evaluate (or extract codes) VQVAE Model', default_task)
     add_dataset_args(parser, train=True)
-    add_generation_args(parser, gen=True)
+    add_generation_args(parser)
     add_eval_vqvae_args(parser)
     return parser
 
@@ -440,13 +440,12 @@ def add_common_eval_args(group):
 
 def add_eval_vqvae_args(parser):
     group = parser.add_argument_group('VQVAE Evaluation')
-    add_common_eval_args(group)
     group.add_argument('--vqvae-path', metavar='FILE',
                        help='path to VQVAE model file, used for code extraction and generation')
     group.add_argument("--prior-path", metavar='FILE', default=None,
                        help='path to autoregressive prior path')
     group.add_argument('--eval-task', type=str, choices=['code_extract', 'reconstruct', 'sampling'])
-    group.add_argument('-num-samples', type=int, default=10000,
+    group.add_argument('--num-samples', type=int, default=10000,
                        help='number of samples to be sampled from the prior then generation')
 
 

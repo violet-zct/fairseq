@@ -76,7 +76,7 @@ def main(args, override_args=None):
     # Initialize generator
     gen_timer = StopwatchMeter()
     num_sentences = 0
-
+    generate_id = 0
     if eval_task != 'sampling':
         # Load valid dataset (we load training data below, based on the latest checkpoint)
         for subset in args.valid_subset.split(','):
@@ -108,7 +108,7 @@ def main(args, override_args=None):
 
             log_outputs = []
             wps_meter = TimeMeter()
-            for i, sample in enumerate(progress):
+            for jj, sample in enumerate(progress):
                 sample = utils.move_to_cuda(sample) if use_cuda else sample
                 log_output = {'sample_size': sample['target'].size(0)}
                 log_outputs.append(log_output)
@@ -127,7 +127,7 @@ def main(args, override_args=None):
                 else:
                     raise NotImplementedError
 
-                progress.log(log_output, step=i)
+                progress.log(log_output, step=jj)
 
                 for i, sample_id in enumerate(sample['id'].tolist()):
                     tokens = utils.strip_pad(sample['target'][i, :], dictionary.pad())
@@ -162,8 +162,8 @@ def main(args, override_args=None):
                                 scorer.add(tokens, hypo_tokens)
                     else:
                         raise NotImplementedError
-
-                if i % 100000 == 0:
+                generate_id += len(sample['id'])
+                if generate_id % 100000 == 0:
                     print("Processed {} lines!".format(i))
             progress.print(log_outputs[0], tag=subset, step=i)
         if eval_task == 'reconstruct':
@@ -174,7 +174,6 @@ def main(args, override_args=None):
         batch_size = 3072 // args.max_len_b
         gen_epochs = args.num_samples // batch_size
         latent_dictionary = prior_task.dictionary
-        generate_id = 0
         for ii in range(gen_epochs):
             dummy_tokens = torch.ones(args.max_len_b, batch_size).long().cuda()
             dummy_lengths = (torch.ones(args.max_len_b) * args.max_len_b).long().cuda()
@@ -217,7 +216,7 @@ def main(args, override_args=None):
                     remove_bpe=args.remove_bpe,
                 )
                 fopt.write('H-{}\t{}\t{}\n'.format(generate_id, hypo['score'], hypo_str))
-                generate_id += 1
+            generate_id += len(hypos)
 
             if generate_id % 1000 == 0:
                 print("Sampled {} sentences!".format(generate_id))

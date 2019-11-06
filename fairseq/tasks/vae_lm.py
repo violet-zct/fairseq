@@ -48,8 +48,8 @@ class VQVAELanguageModelingTask(LanguageModelingTask):
             from fairseq.sequence_scorer import SequenceScorer
             return SequenceScorer(self.target_dictionary)
         else:
-            from fairseq.vae_sequence_generator import SequenceGenerator
-            return SequenceGenerator(
+            from fairseq.vae_sequence_generator import VAESequenceGenerator
+            return VAESequenceGenerator(
                 self.target_dictionary,
                 beam_size=getattr(args, 'beam', 5),
                 max_len_a=getattr(args, 'max_len_a', 0),
