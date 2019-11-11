@@ -169,7 +169,7 @@ def main(args, override_args=None):
         if eval_task == 'reconstruct':
             print('| Reconstructed {} sentences ({} tokens) in {:.1f}s ({:.2f} sentences/s, {:.2f} tokens/s)'.format(
                 num_sentences, gen_timer.n, gen_timer.sum, num_sentences / gen_timer.sum, 1. / gen_timer.avg))
-            print('| Reconstruct {} with beam={}: {}'.format(args.gen_subset, args.beam, scorer.result_string()))
+            print('| Reconstruct {} with beam={}: {}'.format(args.valid_subset, args.beam, scorer.result_string()))
     else:
         batch_size = 3072 // args.max_len_b
         gen_epochs = args.num_samples // batch_size

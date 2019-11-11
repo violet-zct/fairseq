@@ -352,7 +352,7 @@ class VAESequenceGenerator(object):
             # Record attention scores
             if avg_attn_scores is not None:
                 if attn is None:
-                    attn = scores.new(bsz * beam_size, src_tokens.size(1), max_len + 2)
+                    attn = scores.new(bsz * beam_size, avg_attn_scores.size(1), max_len + 2)
                     attn_buf = attn.clone()
                 attn[:, :, step + 1].copy_(avg_attn_scores)
 
