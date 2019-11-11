@@ -56,7 +56,7 @@ def main(args, override_args=None):
     model, task, criterion, generator = set_up_model(args, args.vqvae_path, override_args)
     if eval_task == 'sampling':
         assert args.prior_path is not None
-        prior_model, prior_task, prior_criterion, prior_generator = set_up_model(args, args.prior_path, override_args)
+        prior_model, prior_task, prior_criterion, prior_generator = set_up_model(args, args.prior_path, None)
 
     dictionary = task.dictionary
     if eval_task == 'code_extract':

@@ -134,7 +134,7 @@ class VAESequenceGenerator(object):
         lengths, target_tokens = sample['net_input']['src_lengths'], sample['target']
 
         src_tokens = target_tokens  # target_tokens are the full sentence
-        src_lengths = (src_tokens.ne(self.eos) & src_tokens.ne(self.pad)).long().sum(dim=1)
+        src_lengths = lengths
         input_size = src_tokens.size()
         # batch dimension goes first followed by source lengths
         bsz = input_size[0]
@@ -534,7 +534,8 @@ class EnsembleModel(torch.nn.Module):
             self.incremental_states = {m: {} for m in models}
 
     def has_encoder(self):
-        return hasattr(self.models[0], 'encoder')
+        return True
+        # return hasattr(self.models[0], 'encoder')
 
     def max_decoder_positions(self):
         return min(m.max_decoder_positions() for m in self.models)
@@ -545,7 +546,7 @@ class EnsembleModel(torch.nn.Module):
             return None
         encodings = []
         for model in self.models:
-            _, _, encoder_out, _ =  model.forward_encoder(source_tokens, lengths)
+            _, _, encoder_out, _ = model.forward_encoder(source_tokens, lengths)
             encodings.append(encoder_out)
         return encodings
 
