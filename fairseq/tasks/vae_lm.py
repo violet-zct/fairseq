@@ -37,11 +37,11 @@ class VQVAELanguageModelingTask(LanguageModelingTask):
 
     def reconstruct(self, sample, model, generator, prefix_tokens=None):
         with torch.no_grad():
-            return generator.generate([model], sample, prefix_tokens=prefix_tokens)
+            return generator.generate([model], sample, prefix_tokens=prefix_tokens, bos_token=self.dictionary.bos())
 
     def sampling(self, dummy_sample, codes, code_masks, model, generator, prefix_tokens=None):
         with torch.no_grad():
-            return generator.generate([model], dummy_sample, codes, code_masks, prefix_tokens=prefix_tokens)
+            return generator.generate([model], dummy_sample, codes, code_masks, prefix_tokens=prefix_tokens, bos_token=self.dictionary.bos())
 
     def build_generator(self, args):
         if getattr(args, 'score_reference', False):
