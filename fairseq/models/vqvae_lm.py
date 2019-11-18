@@ -96,7 +96,7 @@ class Quantize(nn.Module):
         :param input_mask: T x batch
         :return:
         '''
-        # S = T x C
+        # S = T x B
         flatten = input.reshape(-1, self.dim)  # S x C
         dist = (
             flatten.pow(2).sum(1, keepdim=True)  # S x 1
