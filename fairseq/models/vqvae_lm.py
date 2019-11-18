@@ -193,6 +193,7 @@ class VQVAE(FairseqLanguageModel):
         self.word_drop_rate = args.drop_word_prob
         self.pretrain_steps = args.pretrain_steps
         self.encoder_context_window = args.context_window
+        self.encoder_opt_dropout = args.encoder_opt_dropout
 
     @staticmethod
     def add_args(parser):
@@ -315,6 +316,7 @@ class VQVAE(FairseqLanguageModel):
         parser.add_argument('--use-latent', type=int, metavar='N')
         parser.add_argument('--add-latent-positions', type=int)
         parser.add_argument('--context-window', type=int, default=0)
+        parser.add_argument('--encoder-opt-dropout', type=float, default=0.)
         # fmt: on
 
     @classmethod
@@ -476,6 +478,13 @@ class VQVAE(FairseqLanguageModel):
         text_conv_out, mask = self.text_conv_encoder(conv_inpt.permute(1, 2, 0),
                                                      lengths)  # B x C x T -> T' x B x C', C' = latent_dim
 
+        if self.add_latent_position:
+            dummy_batch = full_tokens.new_zeros((mask.size(0), mask.size(1))).masked_fill(~mask, self.pad_index)
+            text_conv_out = text_conv_out + self.latent_positional_embedding(dummy_batch).transpose(0, 1)
+
+        if self.encoder_opt_dropout > 0.0:
+            text_conv_out = F.dropout(text_conv_out, p=self.encoder_opt_dropout, training=self.training)
+            
         if self.bottom_quantizer is not None and (update_steps > self.pretrain_steps or not self.training):
             # diff is the loss to update the enocder
             # quantize: masked T X batch x C; diff: scalar; embed_ind: T x batch
@@ -501,11 +510,6 @@ class VQVAE(FairseqLanguageModel):
             quantize_stats.update(global_quantize_stats)
             quantize = torch.cat([global_quantize, quantize], dim=0)
             mask = torch.cat([dummy_mask.transpose(0, 1), mask], dim=1)
-
-        if self.add_latent_position:
-            dummy_batch = full_tokens.new_zeros((quantize.size(0), quantize.size(1))).masked_fill(~mask.transpose(0, 1),
-                                                                                                  self.pad_index)
-            quantize = quantize + self.latent_positional_embedding(dummy_batch)
 
         quantize_out = {'encoder_out': quantize,  # masked T X batch x C
                         'encoder_padding_mask': ~mask,  # B x T, this mask sets padding to be True
