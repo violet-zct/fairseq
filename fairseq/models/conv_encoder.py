@@ -51,21 +51,21 @@ class ConvBlock(nn.Module):
         self.stride = stride
         self.conv1 = nn.Conv1d(input_channel, input_channel, kernel_size=kernel, padding=kernel//2, stride=stride)
         self.bn1 = nn.BatchNorm1d(input_channel)
-        self.conv2 = nn.Conv1d(input_channel, input_channel, kernel_size=kernel, padding=1)
-
+        self.conv2 = nn.Conv1d(input_channel, input_channel, kernel_size=kernel, padding=kernel//2)
+        self.bn2 = nn.BatchNorm1d(input_channel)
         self.downsample = nn.Sequential(nn.Conv1d(input_channel, input_channel, 1, stride=stride),
                                         nn.BatchNorm1d(input_channel))
 
     def forward(self, x, input_length):
         # input: batch x C x T
 
-        new_length, mask = compute_conv_mask(input_length, self.stride)
+        new_length, new_mask = compute_conv_mask(input_length, self.stride)
         residual = self.downsample(x)
-        mask = mask.type_out(residual)
+        mask = new_mask.type_as(residual)
 
         out = self.conv1(x)
         out = self.bn1(out)
-        out = self.relu(out)
+        out = F.relu(out)
 
         out = out * mask.unsqueeze(1)
         out = self.conv2(out)
@@ -75,7 +75,7 @@ class ConvBlock(nn.Module):
         out = F.relu(out)
 
         out = out * mask.unsqueeze(1)
-        return out, new_length, mask
+        return out, new_length, new_mask
 
 
 class FullConvEncoder(FairseqEncoder):
@@ -93,6 +93,9 @@ class FullConvEncoder(FairseqEncoder):
         self.quant_conv = nn.Conv1d(input_channel, latent_dim, 1)
         self.dropout = args.dropout
 
+        self.pad_index = dictionary.pad_index
+        self.bos_index = dictionary.bos_index
+
     def forward_embedding(self, src_tokens):
         # embed tokens and positions
         embed = self.embed_scale * self.embed_tokens(src_tokens)
@@ -103,9 +106,10 @@ class FullConvEncoder(FairseqEncoder):
 
     def forward(self, src_tokens, length):
         x, encoder_embedding = self.forward_embedding(src_tokens)
-        encoding_mask = (~(src_tokens.eq(self.pad_index) | src_tokens.eq(self.dictionary.bos()))).type_as(x)
+        encoding_mask = (~(src_tokens.eq(self.pad_index) | src_tokens.eq(self.bos_index))).type_as(x)
         x = x * (encoding_mask.unsqueeze(-1))  # B x T x C
+        x = x.transpose(1, 2)
         for block in self.conv_blocks:
-            x, length, mask = block(x.transpose(1, 2), length)
+            x, length, mask = block(x, length)
         x = self.quant_conv(x)  # B x C x T'
         return x.permute(2, 0, 1), mask

@@ -164,9 +164,13 @@ class VQVAE(FairseqLanguageModel):
         self.word_drop_rate = args.drop_word_prob
         self.pretrain_steps = args.pretrain_steps
         self.encoder_context_window = args.context_window
-        self.encoder_opt_dropout = args.encoder_opt_dropout
-        self.encoder_form = args.encoder_form
-        self.shrink_ratio = args.shrink_ratio
+
+        # self.encoder_opt_dropout = args.encoder_opt_dropout
+        # self.encoder_form = args.encoder_form
+        # self.shrink_ratio = args.shrink_ratio
+        self.encoder_opt_dropout = getattr(args, 'encoder_opt_dropout', 0.0)
+        self.encoder_form = getattr(args, 'encoder_form', 'mix')
+        self.shrink_ratio = getattr(args, 'shrink_ratio', 8)
 
     @staticmethod
     def add_args(parser):
@@ -505,7 +509,7 @@ class VQVAE(FairseqLanguageModel):
             quantize = quantize['encoder_out']
 
         if self.global_quantizer is not None:
-            dummy_mask = text_encoder_out['encoder_padding_mask'].new_ones((1, encodings.size(1)))  # 1 x B
+            dummy_mask = mask.new_ones((1, encodings.size(1)))  # 1 x B
             global_quantize, global_diff, global_embed_ind, \
             global_quantize_stats = self.global_quantizer(text_conv_out.mean(0).unsqueeze(0),  # 1 x B x C
                                                           dummy_mask,
@@ -517,7 +521,8 @@ class VQVAE(FairseqLanguageModel):
 
         quantize_out = {'encoder_out': quantize,  # masked T X batch x C
                         'encoder_padding_mask': ~mask,  # B x T, this mask sets padding to be True
-                        'encoder_embedding': text_encoder_out['encoder_embedding']  # B x T x C
+                        # 'encoder_embedding': text_encoder_out['encoder_embedding']  # B x T x C
+                        'encoder_embedding': None  # B x T x C
                         }
         return mask, diff, quantize_out, quantize_stats
 
