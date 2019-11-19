@@ -9,7 +9,10 @@ from fairseq.models.typed_transformer import (
     TransformerEncoder,
     TransformerDecoder,
 )
-
+from fairseq.models.conv_encoder import (
+    ConvEncoder,
+    FullConvEncoder,
+)
 from fairseq.modules import PositionalEmbedding
 
 import torch
@@ -20,11 +23,6 @@ DEFAULT_MAX_SOURCE_POSITIONS = 1024
 DEFAULT_MAX_TARGET_POSITIONS = 1024
 
 
-def print_stats(stats):
-    for k, v in stats.items():
-        print("{} = {}".format(k, v.item()))
-
-
 def parse_kernel_and_strides(kernel, stride):
     def _parse(inpt):
         return list(map(int, inpt.split(",")))
@@ -32,36 +30,9 @@ def parse_kernel_and_strides(kernel, stride):
     return _parse(kernel), _parse(stride)
 
 
-def compute_conv_mask(lengths, stride):
-    # lengths: B
-    # we use odd-number kernel
-    valid_lengths = (lengths - 1) / stride + 1
-    max_length = torch.max(valid_lengths).item()
-    mask = torch.arange(max_length, device=lengths.device).type_as(lengths).expand(len(lengths), max_length)
-    mask = mask < valid_lengths.unsqueeze(1)
-    return valid_lengths, mask  # mask -> batch x T'
-
-
-class ConvEncoder(nn.Module):
-    def __init__(self, input_channel, kernels, strides, latent_dim):
-        super().__init__()
-        self.strides = strides
-        self.conv_blocks = nn.ModuleList([])
-        self.conv_blocks.extend([nn.Conv1d(input_channel, input_channel, kernel_size=k, padding=k//2, stride=s)
-                                 for k, s in zip(kernels, strides)])
-        self.quant_conv = nn.Conv1d(input_channel, latent_dim, 1)
-
-    def forward(self, input, lengths):
-        # input: batch x C x T
-        new_mask = None
-        for ii, (conv_layer, s) in enumerate(zip(self.conv_blocks, self.strides)):
-            input = F.relu(conv_layer(input))
-            lengths, new_mask = compute_conv_mask(lengths, s)
-            input = input * new_mask.type_as(input).unsqueeze(1)
-        output = self.quant_conv(input)
-        # output: batch x C' x T' -> T' x batch x C'
-        # new_mask: batch x T'
-        return output.permute(2, 0, 1), new_mask
+def print_stats(stats):
+    for k, v in stats.items():
+        print("{} = {}".format(k, v.item()))
 
 
 class Quantize(nn.Module):
@@ -194,6 +165,8 @@ class VQVAE(FairseqLanguageModel):
         self.pretrain_steps = args.pretrain_steps
         self.encoder_context_window = args.context_window
         self.encoder_opt_dropout = args.encoder_opt_dropout
+        self.encoder_form = args.encoder_form
+        self.shrink_ratio = args.shrink_ratio
 
     @staticmethod
     def add_args(parser):
@@ -317,6 +290,10 @@ class VQVAE(FairseqLanguageModel):
         parser.add_argument('--add-latent-positions', type=int)
         parser.add_argument('--context-window', type=int, default=0)
         parser.add_argument('--encoder-opt-dropout', type=float, default=0.)
+        parser.add_argument('--encoder-form', type=str, default='mix', choices=['mix', 'conv', 'append'],
+                            help='mix=transformer+cnn, conv=fully cnn, append=transformer+pending positional embedding')
+        parser.add_argument('--shrink-ratio', type=int, default=8,
+                            help='used for append')
         # fmt: on
 
     @classmethod
@@ -379,11 +356,24 @@ class VQVAE(FairseqLanguageModel):
 
     @classmethod
     def build_encoder(cls, args, src_dict, embed_tokens):
-        text_encoder = TransformerEncoder(args, src_dict, embed_tokens, args.max_source_positions,
-                                          args.encoder_layers, args.encoder_embed_dim, args.encoder_attention_heads,
-                                          args.encoder_ffn_embed_dim)
-        kernels, strides = parse_kernel_and_strides(args.bottom_conv_kernel_size, args.bottom_conv_stride)
-        text_conv_encoder = ConvEncoder(args.encoder_embed_dim, kernels, strides, args.bottom_latent_dim)
+        if args.encoder_form != 'append':
+            kernels, strides = parse_kernel_and_strides(args.bottom_conv_kernel_size, args.bottom_conv_stride)
+        if args.encoder_form == 'mix':
+            text_encoder = TransformerEncoder(args, src_dict, embed_tokens, args.max_source_positions,
+                                              args.encoder_layers, args.encoder_embed_dim, args.encoder_attention_heads,
+                                              args.encoder_ffn_embed_dim)
+            text_conv_encoder = ConvEncoder(args.encoder_embed_dim, kernels, strides, args.bottom_latent_dim)
+        elif args.encoder_form == 'conv':
+            text_encoder = FullConvEncoder(args, args.encoder_embed_dim, kernels, strides, args.bottom_latent_dim,
+                                           embed_tokens, src_dict)
+            text_conv_encoder = None
+        elif args.encoder_form == 'append':
+            text_encoder = TransformerEncoder(args, src_dict, embed_tokens, args.max_source_positions,
+                                              args.encoder_layers, args.encoder_embed_dim, args.encoder_attention_heads,
+                                              args.encoder_ffn_embed_dim)
+            text_conv_encoder = None
+        else:
+            raise NotImplementedError
 
         if args.use_bottom_quantants_encoder:
             bottom_latent_encoder = TransformerEncoder(args, None, None, args.max_source_positions,
@@ -439,6 +429,14 @@ class VQVAE(FairseqLanguageModel):
             c = (torch.arange(T).type_as(tokens) + self.encoder_context_window).unsqueeze(1).expand(T, T)
             return (~((a <= c) | (a >= b))).float()
 
+    def create_aug_input(self, src_tokens, lengths):
+        append_lengths = (lengths - 1) / self.shrink_ratio + 1
+        max_length = torch.max(append_lengths).item()
+        mask = torch.arange(max_length, device=lengths.device).type_as(lengths).expand(len(lengths), max_length)
+        mask = mask < append_lengths.unsqueeze(1)  # B x L
+        aug_tokens = src_tokens.new_ones((src_tokens.size(0), max_length)).fill_(self.text_encoder.dictionary.bos_index)
+        return aug_tokens, mask
+
     def forward(self, decoder_tokens, lengths, full_tokens, update_steps, **kwargs):
         mask, diff, quantize_out, quantize_stats = self.forward_encoder(full_tokens, lengths, update_steps)
         if self.training and self.word_drop_rate > 0.0:
@@ -448,9 +446,6 @@ class VQVAE(FairseqLanguageModel):
         return logits, diff, quantize_stats, mask.sum().type_as(diff)
 
         # todo: prior model - one decoder, one encoder-decoder
-        # todo: sampling + task
-
-        # todo: data set processing
         # todo: hierarchical model
 
     def forward_encoder(self, full_tokens, lengths, update_steps=-1):
@@ -463,20 +458,29 @@ class VQVAE(FairseqLanguageModel):
                     'encoder_states': encoder_states,  # List[T x B x C]
                 }
                 """
-        encoder_attn_mask = self.create_mask(full_tokens)
-        text_encoder_out = self.text_encoder(full_tokens, attn_mask=encoder_attn_mask)
-        encodings = text_encoder_out['encoder_out']
+        if self.encoder_form == 'mix':
+            encoder_attn_mask = self.create_mask(full_tokens)
+            text_encoder_out = self.text_encoder(full_tokens, attn_mask=encoder_attn_mask)
+            encodings = text_encoder_out['encoder_out']
 
-        # encoding_mask = (~text_encoder_out['encoder_padding_mask']).type_as(text_encoder_out['encoder_out'])
-        encoding_mask = (~(full_tokens.eq(self.pad_index) | full_tokens.eq(self.decoder.dictionary.bos()))).type_as(
-            text_encoder_out['encoder_out'])
-        conv_inpt = encodings * (encoding_mask.transpose(0, 1).unsqueeze(-1))  # T x B x C
+            # encoding_mask = (~text_encoder_out['encoder_padding_mask']).type_as(text_encoder_out['encoder_out'])
+            encoding_mask = (~(full_tokens.eq(self.pad_index) | full_tokens.eq(self.decoder.dictionary.bos()))).type_as(
+                text_encoder_out['encoder_out'])
+            conv_inpt = encodings * (encoding_mask.transpose(0, 1).unsqueeze(-1))  # T x B x C
 
-        # !!!!!!!!!!!!! the output mask sets padding to be False
-        # text_conv_out: T' x batch x C'
-        # mask: batch x T'
-        text_conv_out, mask = self.text_conv_encoder(conv_inpt.permute(1, 2, 0),
-                                                     lengths)  # B x C x T -> T' x B x C', C' = latent_dim
+            # !!!!!!!!!!!!! the output mask sets padding to be False
+            # text_conv_out: T' x batch x C'
+            # mask: batch x T'
+            text_conv_out, mask = self.text_conv_encoder(conv_inpt.permute(1, 2, 0),
+                                                         lengths)  # B x C x T -> T' x B x C', C' = latent_dim
+        elif self.encoder_form == 'conv':
+            text_conv_out, mask = self.text_encoder(full_tokens, lengths)
+        elif self.encoder_form == 'append':
+            aug_tokens, mask = self.create_aug_input(full_tokens, lengths)
+            text_encoder_out = self.text_encoder(full_tokens, auxilary_tokens=aug_tokens)
+            text_conv_out = text_encoder_out['encoder_out'][full_tokens.size(1):, :, :]  # T' x B x C
+        else:
+            raise NotImplementedError
 
         if self.add_latent_position:
             dummy_batch = full_tokens.new_zeros((mask.size(0), mask.size(1))).masked_fill(~mask, self.pad_index)
@@ -484,7 +488,7 @@ class VQVAE(FairseqLanguageModel):
 
         if self.encoder_opt_dropout > 0.0:
             text_conv_out = F.dropout(text_conv_out, p=self.encoder_opt_dropout, training=self.training)
-            
+
         if self.bottom_quantizer is not None and (update_steps > self.pretrain_steps or not self.training):
             # diff is the loss to update the enocder
             # quantize: masked T X batch x C; diff: scalar; embed_ind: T x batch

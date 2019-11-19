@@ -84,7 +84,8 @@ class TransformerEncoder(FairseqEncoder):
         x = F.dropout(x, p=self.dropout, training=self.training)
         return x, embed
 
-    def forward(self, src_tokens=None, cls_input=None, return_all_hiddens=False, src_encodings=None, encoder_padding_mask=None, attn_mask=None):
+    def forward(self, src_tokens=None, cls_input=None, return_all_hiddens=False, src_encodings=None,
+                encoder_padding_mask=None, attn_mask=None, auxilary_tokens=None):
         """
         Args:
             src_tokens (LongTensor): tokens in the source language of shape
@@ -111,10 +112,13 @@ class TransformerEncoder(FairseqEncoder):
 
         if self.embed_tokens is not None:
             x, encoder_embedding = self.forward_embedding(src_tokens)
+            aug_x, _ = self.forward_embedding(auxilary_tokens)
+            x = torch.cat([x, aug_x], dim=1)
             # B x T x C -> T x B x C
             x = x.transpose(0, 1)
+            src_tokens = torch.cat([src_tokens, auxilary_tokens], dim=1)
             # compute padding mask
-            encoder_padding_mask = src_tokens.eq(self.padding_idx)
+            encoder_padding_mask = (src_tokens.eq(self.padding_idx) | src_tokens.eq(self.dictionary.bos_index))
         else:
             assert encoder_padding_mask is not None
             src_tokens = encoder_padding_mask.long()
