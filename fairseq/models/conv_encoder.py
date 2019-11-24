@@ -46,15 +46,17 @@ class ConvEncoder(nn.Module):
 
 
 class ConvBlock(nn.Module):
-    def __init__(self, input_channel, kernel, stride):
+    def __init__(self, input_channel, kernel, stride, output_channel=None):
         super().__init__()
         self.stride = stride
-        self.conv1 = nn.Conv1d(input_channel, input_channel, kernel_size=kernel, padding=kernel//2, stride=stride)
-        self.bn1 = nn.BatchNorm1d(input_channel)
-        self.conv2 = nn.Conv1d(input_channel, input_channel, kernel_size=kernel, padding=kernel//2)
-        self.bn2 = nn.BatchNorm1d(input_channel)
-        self.downsample = nn.Sequential(nn.Conv1d(input_channel, input_channel, 1, stride=stride),
-                                        nn.BatchNorm1d(input_channel))
+        if output_channel is None:
+            output_channel = input_channel
+        self.conv1 = nn.Conv1d(input_channel, output_channel, kernel_size=kernel, padding=kernel//2, stride=stride)
+        self.bn1 = nn.BatchNorm1d(output_channel)
+        self.conv2 = nn.Conv1d(input_channel, output_channel, kernel_size=kernel, padding=kernel//2)
+        self.bn2 = nn.BatchNorm1d(output_channel)
+        self.downsample = nn.Sequential(nn.Conv1d(input_channel, output_channel, 1, stride=stride),
+                                        nn.BatchNorm1d(output_channel))
 
     def forward(self, x, input_length):
         # input: batch x C x T
@@ -78,8 +80,55 @@ class ConvBlock(nn.Module):
         return out, new_length, new_mask
 
 
+class MultiKernelConvBlock(nn.Module):
+    def __init__(self, input_channel, kernels, stride, single_output_channel):
+        super().__init__()
+        self.stride = stride
+        self.kernels = kernels
+
+        output_channel = single_output_channel * len(kernels)
+        self.conv_block_1 = nn.ModuleList([])
+        self.conv_block_1.extend([nn.Conv1d(input_channel, single_output_channel, kernel_size=k,
+                                            padding=k//2 if k % 2 != 0 else 0, stride=stride) for k in kernels])
+        self.bn1 = nn.BatchNorm1d(output_channel)
+
+        self.conv_block_2 = nn.ModuleList([])
+        self.conv_block_1.extend([nn.Conv1d(output_channel, single_output_channel, kernel_size=k,
+                                            padding=k//2 if k % 2 != 0 else 0, stride=1) for k in kernels])
+        self.bn2 = nn.BatchNorm1d(output_channel)
+
+        self.downsample = nn.Sequential(nn.Conv1d(input_channel, output_channel, 1, stride=stride),
+                                        nn.BatchNorm1d(output_channel))
+
+    def forward(self, x, input_length):
+        # input: batch x C x T
+
+        new_length, new_mask = compute_conv_mask(input_length, self.stride)
+        residual = self.downsample(x)
+        mask = new_mask.type_as(residual)
+
+        outs = [self.conv_block_1[ii](x if k % 2 == 0 else F.pad(x, (k//2, k//2-1, 'constant', 0)))
+                for ii, k in enumerate(self.kernels)]
+        out = torch.cat(outs, dim=1)
+        out = self.bn1(out)
+        out = F.relu(out)
+
+        out = out * mask.unsqueeze(1)
+        outs = [self.conv_block_2[ii](out if k % 2 == 0 else F.pad(out, (k//2, k//2-1, 'constant', 0)))
+                for ii, k in enumerate(self.kernels)]
+        out = torch.cat(outs, dim=1)
+        out = self.bn2(out)
+
+        out = out + residual
+        out = F.relu(out)
+
+        out = out * mask.unsqueeze(1)
+        return out, new_length, new_mask
+
+
 class FullConvEncoder(FairseqEncoder):
     def __init__(self, args, input_channel, kernels, strides, latent_dim, embed_tokens, dictionary):
+        # kernels: [[3,4,5], [2,3,4]]
         super().__init__(dictionary)
         # input_channel = embed_dim
         self.padding_idx = embed_tokens.padding_idx
@@ -87,10 +136,13 @@ class FullConvEncoder(FairseqEncoder):
         self.embed_scale = math.sqrt(input_channel)
         self.embed_positions = PositionalEmbedding(DEFAULT_MAX_SOURCE_POSITIONS, input_channel, self.padding_idx, learned=args.encoder_learned_pos)
         self.strides = strides
+
+        single_kernel_channel = 256
+        input_channels = [input_channel] + [single_kernel_channel * len(kk) for kk in kernels]
         self.conv_blocks = nn.ModuleList([])
-        self.conv_blocks.extend([ConvBlock(input_channel, k, s)
-                                 for k, s in zip(kernels, strides)])
-        self.quant_conv = nn.Conv1d(input_channel, latent_dim, 1)
+        self.conv_blocks.extend([MultiKernelConvBlock(d, k, s, single_kernel_channel)
+                                 for k, s, d in zip(kernels, strides, input_channels[:-1])])
+        self.quant_conv = nn.Conv1d(input_channels[-1], latent_dim, 1)
         self.dropout = args.dropout
 
         self.pad_index = dictionary.pad_index

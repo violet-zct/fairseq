@@ -370,6 +370,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
 
         # decoder layers
         attn = None
+        attns = []
         inner_states = [x]
         for idx, layer in enumerate(self.layers):
             encoder_state = None
@@ -391,13 +392,14 @@ class TransformerDecoder(FairseqIncrementalDecoder):
                 incremental_state,
                 self_attn_mask=self_attn_mask,
                 self_attn_padding_mask=self_attn_padding_mask,
-                need_attn=(idx == alignment_layer),
+                need_attn=(idx == alignment_layer or not self.training),
                 need_head_weights=(idx == alignment_layer),
             )
 
             inner_states.append(x)
             if layer_attn is not None and idx == alignment_layer:
                 attn = layer_attn.float()
+                attns.append(attn.mean(dim=0))
 
         if attn is not None:
             if alignment_heads is not None:
@@ -415,7 +417,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         if self.project_out_dim is not None:
             x = self.project_out_dim(x)
 
-        return x, {'attn': attn, 'inner_states': inner_states}
+        return x, {'attn': attns, 'inner_states': inner_states}
 
     def output_layer(self, features, **kwargs):
         """Project features to the vocabulary size."""

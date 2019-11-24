@@ -155,7 +155,7 @@ class VAESequenceGenerator(object):
             encoder_outs = model.forward_quantization(codes, code_masks, global_codes)
         else:
             # compute the encoder output for each beam
-            encoder_outs = model.forward_encoder(src_tokens, src_lengths)
+            encoder_outs, codes = model.forward_encoder(src_tokens, src_lengths)
         new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_size).view(-1)
         new_order = new_order.to(src_tokens.device).long()
         encoder_outs = model.reorder_encoder_out(encoder_outs, new_order)
@@ -520,7 +520,7 @@ class VAESequenceGenerator(object):
         # sort by score descending
         for sent in range(len(finalized)):
             finalized[sent] = sorted(finalized[sent], key=lambda r: r['score'], reverse=True)
-        return finalized
+        return finalized, codes
 
 
 class EnsembleModel(torch.nn.Module):
@@ -546,9 +546,9 @@ class EnsembleModel(torch.nn.Module):
             return None
         encodings = []
         for model in self.models:
-            _, _, encoder_out, _ = model.forward_encoder(source_tokens, lengths)
+            _, _, encoder_out, _, codes = model.forward_encoder(source_tokens, lengths)
             encodings.append(encoder_out)
-        return encodings
+        return encodings, codes
 
     @torch.no_grad()
     def forward_quantization(self, codes, code_mask, global_codes=None):
@@ -605,7 +605,8 @@ class EnsembleModel(torch.nn.Module):
         if type(attn) is dict:
             attn = attn.get('attn', None)
         if attn is not None:
-            attn = attn[:, -1, :]
+            # cross-attention weights of all layers
+            attn = sum([a[:, -1, :] for a in attn]) / len(attn)
         probs = model.get_normalized_probs(decoder_out, log_probs=log_probs)
         probs = probs[:, -1, :]
         return probs, attn

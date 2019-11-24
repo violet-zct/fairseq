@@ -27,7 +27,14 @@ def parse_kernel_and_strides(kernel, stride):
     def _parse(inpt):
         return list(map(int, inpt.split(",")))
 
-    return _parse(kernel), _parse(stride)
+    def _parse_kernels(inpt):
+        return [list(map(int, ii.split('-'))) for ii in inpt.split(",")]
+
+    kernels = _parse_kernels(kernel)
+    # check = [len(ii) == 1 for ii in kernels]
+    # if all(check):
+    #     kernels = [ii[0] for ii in kernels]
+    return kernels, _parse(stride)
 
 
 def print_stats(stats):
@@ -233,7 +240,8 @@ class VQVAE(FairseqLanguageModel):
         # arguments for bottom level convolutional text encoder
         parser.add_argument('--bottom-conv-kernel-size', type=str,
                             help='[format: 1,2,3], kernel sizes for the bottom latent variables conv layers, '
-                                 'with transformer encoder outputs as inputs')
+                                 'with transformer encoder outputs as inputs,'
+                                 'to use multi-channel CNN, use the format of [2-3-4,5-7]')
         parser.add_argument("--bottom-conv-stride", type=str,
                             help='[format: 2,2,2], strides for the bottom latent variables conv layers')
 
@@ -524,7 +532,16 @@ class VQVAE(FairseqLanguageModel):
                         # 'encoder_embedding': text_encoder_out['encoder_embedding']  # B x T x C
                         'encoder_embedding': None  # B x T x C
                         }
-        return mask, diff, quantize_out, quantize_stats
+
+        if not self.training:
+            if self.bottom_quantizer.soft:
+                _, embed_ind = F.one_hot(embed_ind, self.bottom_quantizer.n_embed).sum(1).max(1)
+
+            embed_ind = embed_ind.view(*text_conv_out.shape[:-1])  # T x batch
+            codes = embed_ind.transpose(0, 1).masked_fill(~mask, -1)
+        else:
+            codes = None
+        return mask, diff, quantize_out, quantize_stats, codes
 
     def forward_decoder(self, decoder_tokens, encoder_out, incremental_state=None):
         decoder_out = self.decoder(decoder_tokens, encoder_out=encoder_out, incremental_state=incremental_state)
@@ -552,24 +569,6 @@ class VQVAE(FairseqLanguageModel):
                 encoder_out['encoder_states'][idx] = state.index_select(1, new_order)
         return encoder_out
 
-    def extract_codes(self, full_tokens, full_lengths):
-        text_encoder_out = self.text_encoder(full_tokens)
-        encoding_mask = (~text_encoder_out['encoder_padding_mask']).type_as(text_encoder_out['encoder_out'])
-        conv_inpt = text_encoder_out['encoder_out'] * (encoding_mask.transpose(0, 1).unsqueeze(-1))  # T x B x C
-        text_conv_out, mask = self.text_conv_encoder(conv_inpt.permute(1, 2, 0),
-                                                     full_lengths)  # B x C x T -> T' x B x C', C' = latent_dim
-
-        # diff is the loss to update the enocder
-        # quantize: masked T X batch x C; diff: scalar; embed_ind: T x batch
-        quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out,
-                                                                          mask.transpose(0, 1).contiguous())
-
-        if self.bottom_quantizer.soft:
-            _, embed_ind = F.one_hot(embed_ind, self.bottom_quantizer.n_embed).sum(1).max(1)
-
-        embed_ind = embed_ind.view(*text_conv_out.shape[:-1])  # T x batch
-        return embed_ind.transpose(0, 1).masked_fill(~mask, -1)
-
     def quantization(self, codes, code_mask, global_codes=None):
         # codes: T x batch; code_mask: batch x T; mask here sets pad to be True
         # global_codes: batch
@@ -580,11 +579,6 @@ class VQVAE(FairseqLanguageModel):
             dummy_mask = code_mask.new_zeros((code_mask.size(0)))  # B x 1
             quantize = torch.cat([global_quantize, quantize], dim=0)
             code_mask = torch.cat([dummy_mask.transpose(0, 1), code_mask], dim=1)
-
-        if self.add_latent_position:
-            dummy_batch = codes.new_zeros((quantize.size(0), quantize.size(1))).masked_fill(code_mask.transpose(0, 1),
-                                                                                                  self.pad_index)
-            quantize = quantize + self.latent_positional_embedding(dummy_batch)
 
         quantize_out = {'encoder_out': quantize,  # masked T X batch x C
                         'encoder_padding_mask': code_mask,  # B x T, this mask sets padding to be True

@@ -32,7 +32,7 @@ class VQVAELanguageModelingTask(LanguageModelingTask):
         model.eval()
         with torch.no_grad():
             tokens, lengths = sample['target'], sample['net_input']['src_lengths']
-            emb_inds = model.extract_codes(tokens, lengths) # B x T
+            _, _, _, _, emb_inds = model.forward_encoder(tokens, lengths) # B x T
         return emb_inds
 
     def reconstruct(self, sample, model, generator, prefix_tokens=None):

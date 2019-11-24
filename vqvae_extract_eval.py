@@ -10,6 +10,8 @@ import os, io
 from fairseq import checkpoint_utils, options, progress_bar, utils, bleu
 from fairseq.meters import StopwatchMeter, TimeMeter
 from fairseq.data import data_utils
+import numpy as np
+import math
 
 
 def set_up_model(args, path, override_args=None):
@@ -46,6 +48,14 @@ def set_up_model(args, path, override_args=None):
 
     generator = task.build_generator(model_args)
     return model, task, criterion, generator
+
+
+def compute_attn(m):
+    # m: s x t
+    m[m <= 0] = 1e-12
+    e = np.sum(np.log(m) * m, axis=0)
+    mm = np.argmax(m, axis=0)
+    return -e, mm
 
 
 def main(args, override_args=None):
@@ -119,7 +129,7 @@ def main(args, override_args=None):
                 elif eval_task == 'reconstruct':
                     prefix_tokens = None
                     gen_timer.start()
-                    hypos = task.reconstruct(sample, model, generator, prefix_tokens)
+                    hypos, codes = task.reconstruct(sample, model, generator, prefix_tokens)
                     num_generated_tokens = sum(len(h[0]['tokens']) for h in hypos)
                     gen_timer.stop(num_generated_tokens)
                     wps_meter.update(num_generated_tokens)
@@ -144,6 +154,7 @@ def main(args, override_args=None):
                                                        ' '.join([str(x) for x in code.tolist() if x != -1])))
                     elif eval_task == 'reconstruct':
                         for j, hypo in enumerate(hypos[i][:args.nbest]):
+                            code = codes[i]
                             hypo_tokens, hypo_str, alignment = utils.post_process_prediction(
                                 hypo_tokens=hypo['tokens'].int().cpu(),
                                 src_str="",
@@ -152,7 +163,15 @@ def main(args, override_args=None):
                                 tgt_dict=dictionary,
                                 remove_bpe=args.remove_bpe,
                             )
+                            hypo_attn = hypo['attention'].cpu().numpy()  # src_len x tgt_len
+                            entropy, max_idx = compute_attn(hypo_attn)
+                            baseline_entropy = hypo_attn.shape[0] * math.log(1./hypo_attn.shape[0]) * 1.0/hypo_attn.shape[0]
                             fopt.write('H-{}\t{}\t{}\n'.format(sample_id, hypo['score'], hypo_str))
+                            fopt.write('C-{}\n'.format(" ".join(["c-%d" % kk for kk in code if kk != -1])))
+                            fopt.write('A-entropy-baseline-{:.2f}\n'.format(baseline_entropy))
+                            fopt.write('A-entropy-{}\n'.format(" ".join(["%.2f" % e for e in entropy])))
+                            fopt.write('A-max-attn-pos-{}\n'.format(" ".join([str(kk) for kk in max_idx])))
+                            fopt.write('\n')
                             if args.remove_bpe is not None:
                                 # Convert back to tokens for evaluation with unk replacement and/or without BPE
                                 tokens = dictionary.encode_line(origin_string, add_if_not_exist=True)
@@ -203,7 +222,6 @@ def main(args, override_args=None):
                 predictions, latent_dictionary.pad(), latent_dictionary.eos(), left_pad=False,
             )
             code_masks = merged_codes.eq(latent_dictionary.pad())
-
             hypos = task.sampling(dummy_samples, merged_codes, code_masks, model, generator)
             for tt in range(len(hypos)):
                 hypo = hypos[tt][0]
