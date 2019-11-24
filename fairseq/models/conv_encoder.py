@@ -93,7 +93,7 @@ class MultiKernelConvBlock(nn.Module):
         self.bn1 = nn.BatchNorm1d(output_channel)
 
         self.conv_block_2 = nn.ModuleList([])
-        self.conv_block_1.extend([nn.Conv1d(output_channel, single_output_channel, kernel_size=k,
+        self.conv_block_2.extend([nn.Conv1d(output_channel, single_output_channel, kernel_size=k,
                                             padding=k//2 if k % 2 != 0 else 0, stride=1) for k in kernels])
         self.bn2 = nn.BatchNorm1d(output_channel)
 
@@ -107,14 +107,14 @@ class MultiKernelConvBlock(nn.Module):
         residual = self.downsample(x)
         mask = new_mask.type_as(residual)
 
-        outs = [self.conv_block_1[ii](x if k % 2 == 0 else F.pad(x, (k//2, k//2-1, 'constant', 0)))
+        outs = [self.conv_block_1[ii](x if k % 2 == 0 else F.pad(x, (k//2, k//2-1), 'constant', 0))
                 for ii, k in enumerate(self.kernels)]
         out = torch.cat(outs, dim=1)
         out = self.bn1(out)
         out = F.relu(out)
 
         out = out * mask.unsqueeze(1)
-        outs = [self.conv_block_2[ii](out if k % 2 == 0 else F.pad(out, (k//2, k//2-1, 'constant', 0)))
+        outs = [self.conv_block_2[ii](out if k % 2 == 0 else F.pad(out, (k//2, k//2-1), 'constant', 0))
                 for ii, k in enumerate(self.kernels)]
         out = torch.cat(outs, dim=1)
         out = self.bn2(out)
