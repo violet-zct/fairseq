@@ -450,7 +450,7 @@ class VQVAE(FairseqLanguageModel):
         return aug_tokens, mask
 
     def forward(self, decoder_tokens, lengths, full_tokens, update_steps, **kwargs):
-        mask, diff, quantize_out, quantize_stats = self.forward_encoder(full_tokens, lengths, update_steps)
+        mask, diff, quantize_out, quantize_stats, _ = self.forward_encoder(full_tokens, lengths, update_steps)
         if self.training and self.word_drop_rate > 0.0:
             decoder_tokens = self.mask_words(decoder_tokens, lengths)
         decoder_out = self.decoder(decoder_tokens, encoder_out=quantize_out)
