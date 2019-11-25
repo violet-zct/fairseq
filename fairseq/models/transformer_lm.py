@@ -201,7 +201,7 @@ def small_lm_architecture(args):
     args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 256)
     args.decoder_ffn_embed_dim = getattr(args, 'decoder_ffn_embed_dim', 1024)
     args.decoder_layers = getattr(args, 'decoder_layers', 3)
-    args.decoder_attention_heads = getattr(args, 'decoder_attention_heads', 3)
+    args.decoder_attention_heads = getattr(args, 'decoder_attention_heads', 4)
     args.adaptive_softmax_cutoff = getattr(args, 'adaptive_softmax_cutoff', None)
     args.adaptive_softmax_dropout = getattr(args, 'adaptive_softmax_dropout', 0)
     args.adaptive_softmax_factor = getattr(args, 'adaptive_softmax_factor', 4)
