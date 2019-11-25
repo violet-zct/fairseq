@@ -183,6 +183,51 @@ def base_lm_architecture(args):
     args.tie_adaptive_proj = getattr(args, 'tie_adaptive_proj', False)
 
 
+@register_model_architecture('transformer_lm', 'transformer_small_lm')
+def small_lm_architecture(args):
+    # backward compatibility for older model checkpoints
+    if hasattr(args, 'no_tie_adaptive_proj'):
+        # previous models defined --no-tie-adaptive-proj, so use the existence of
+        # that option to determine if this is an "old" model checkpoint
+        args.no_decoder_final_norm = True  # old models always set this to True
+        if args.no_tie_adaptive_proj is False:
+            args.tie_adaptive_proj = True
+    if hasattr(args, 'decoder_final_norm'):
+        args.no_decoder_final_norm = not args.decoder_final_norm
+
+    args.dropout = getattr(args, 'dropout', 0.15)
+    args.attention_dropout = getattr(args, 'attention_dropout', 0.1)
+
+    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 256)
+    args.decoder_ffn_embed_dim = getattr(args, 'decoder_ffn_embed_dim', 1024)
+    args.decoder_layers = getattr(args, 'decoder_layers', 3)
+    args.decoder_attention_heads = getattr(args, 'decoder_attention_heads', 3)
+    args.adaptive_softmax_cutoff = getattr(args, 'adaptive_softmax_cutoff', None)
+    args.adaptive_softmax_dropout = getattr(args, 'adaptive_softmax_dropout', 0)
+    args.adaptive_softmax_factor = getattr(args, 'adaptive_softmax_factor', 4)
+    args.decoder_learned_pos = getattr(args, 'decoder_learned_pos', False)
+    args.activation_fn = getattr(args, 'activation_fn', 'relu')
+
+    args.add_bos_token = getattr(args, 'add_bos_token', False)
+    args.no_token_positional_embeddings = getattr(args, 'no_token_positional_embeddings', False)
+    args.share_decoder_input_output_embed = getattr(args, 'share_decoder_input_output_embed', False)
+    args.character_embeddings = getattr(args, 'character_embeddings', False)
+
+    args.decoder_output_dim = getattr(args, 'decoder_output_dim', args.decoder_embed_dim)
+    args.decoder_input_dim = getattr(args, 'decoder_input_dim', args.decoder_embed_dim)
+
+    # Model training is not stable without this
+    args.decoder_normalize_before = True
+    args.no_decoder_final_norm = getattr(args, 'no_decoder_final_norm', False)
+
+    args.adaptive_input = getattr(args, 'adaptive_input', False)
+    args.adaptive_input_factor = getattr(args, 'adaptive_input_factor', 4)
+    args.adaptive_input_cutoff = getattr(args, 'adaptive_input_cutoff', None)
+
+    args.tie_adaptive_weights = getattr(args, 'tie_adaptive_weights', False)
+    args.tie_adaptive_proj = getattr(args, 'tie_adaptive_proj', False)
+
+
 @register_model_architecture('transformer_lm', 'transformer_lm_big')
 def transformer_lm_big(args):
     args.decoder_layers = getattr(args, 'decoder_layers', 12)
