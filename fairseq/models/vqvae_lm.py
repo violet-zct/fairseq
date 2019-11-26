@@ -438,13 +438,17 @@ class VQVAE(FairseqLanguageModel):
             return src_tokens
         valid_lengths = (lengths - 1) / self.shrink_ratio + 1
         max_length = torch.max(valid_lengths).item()
+        max_src_length = src_tokens.size(1)
         valid_index = torch.arange(max_length, device=lengths.device).type_as(lengths).expand(len(lengths), max_length)
         valid_start_idx = valid_index * self.shrink_ratio
+        rand1 = torch.randint(1, min(self.shrink_ratio, max_src_length), (src_tokens.size(0),))
         rand = torch.randint_like(valid_start_idx, 0, self.shrink_ratio)
+        rand[:, 0] = rand1
         source_mask_index = rand + valid_start_idx
-        unmask_local_mask = source_mask_index >= lengths.unsqueeze(1)
+        unmask_local_mask = ((source_mask_index >= max_src_length) | (source_mask_index <= 0))
         first_index = source_mask_index[:, 0].unsqueeze(1).expand(len(lengths), max_length)
-        source_mask_index = source_mask_index * (~unmask_local_mask) + first_index * unmask_local_mask
+        source_mask_index = source_mask_index * ((~unmask_local_mask).long()) + first_index * unmask_local_mask.long()
+        assert torch.all(source_mask_index < max_src_length)
         src_tokens = src_tokens.scatter(1, source_mask_index, self.pad_index)
         return src_tokens
 
@@ -518,7 +522,7 @@ class VQVAE(FairseqLanguageModel):
 
         if self.encoder_opt_dropout > 0.0:
             text_conv_out = F.dropout(text_conv_out, p=self.encoder_opt_dropout, training=self.training)
-
+        
         if self.bottom_quantizer is not None and (update_steps > self.pretrain_steps or not self.training):
             # diff is the loss to update the enocder
             # quantize: masked T X batch x C; diff: scalar; embed_ind: T x batch
