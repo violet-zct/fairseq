@@ -431,6 +431,19 @@ class VQVAE(FairseqLanguageModel):
         src_tokens[(1 - mask).bool()] = self.pad_index
         return src_tokens
 
+    def spacing_mask_words(self, src_tokens, lengths):
+        valid_lengths = (lengths - 1) / self.shrink_ratio + 1
+        max_length = torch.max(valid_lengths).item()
+        valid_index = torch.arange(max_length, device=lengths.device).type_as(lengths).expand(len(lengths), max_length)
+        valid_start_idx = valid_index * self.shrink_ratio
+        rand = torch.randint_like(valid_start_idx, 0, self.shrink_ratio)
+        source_mask_index = rand + valid_start_idx
+        unmask_local_mask = source_mask_index >= lengths.unsqueeze(1)
+        first_index = source_mask_index[:, 0].unsqueeze(1).expand(len(lengths), max_length)
+        source_mask_index = source_mask_index * (~unmask_local_mask) + first_index * unmask_local_mask
+        src_tokens = src_tokens.scatter(1, source_mask_index, self.pad_index)
+        return src_tokens
+
     def create_mask(self, tokens):
         if self.encoder_context_window == 0:
             return None
@@ -452,7 +465,8 @@ class VQVAE(FairseqLanguageModel):
     def forward(self, decoder_tokens, lengths, full_tokens, update_steps, **kwargs):
         mask, diff, quantize_out, quantize_stats, _ = self.forward_encoder(full_tokens, lengths, update_steps)
         if self.training and self.word_drop_rate > 0.0:
-            decoder_tokens = self.mask_words(decoder_tokens, lengths)
+            decoder_tokens = self.spacing_mask_words(decoder_tokens, lengths)
+            # decoder_tokens = self.mask_words(decoder_tokens, lengths)
         decoder_out = self.decoder(decoder_tokens, encoder_out=quantize_out)
         logits = decoder_out[0]
         return logits, diff, quantize_stats, mask.sum().type_as(diff)
