@@ -19,6 +19,8 @@ import torch
 from torch.nn import functional as F
 from torch import nn
 
+import numpy as np
+
 DEFAULT_MAX_SOURCE_POSITIONS = 1024
 DEFAULT_MAX_TARGET_POSITIONS = 1024
 
@@ -432,6 +434,8 @@ class VQVAE(FairseqLanguageModel):
         return src_tokens
 
     def spacing_mask_words(self, src_tokens, lengths):
+        if np.random.uniform() > 0.85:
+            return src_tokens
         valid_lengths = (lengths - 1) / self.shrink_ratio + 1
         max_length = torch.max(valid_lengths).item()
         valid_index = torch.arange(max_length, device=lengths.device).type_as(lengths).expand(len(lengths), max_length)
