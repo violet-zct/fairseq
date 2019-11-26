@@ -72,7 +72,11 @@ def main(args, override_args=None):
     if eval_task == 'code_extract':
         fopt = io.open(os.path.join(args.results_path, args.valid_subset + ".codes"), "w", encoding='utf-8')
     elif eval_task == 'reconstruct':
-        fopt = io.open(os.path.join(args.results_path, args.valid_subset + ".reconstruction"), "w", encoding='utf-8')
+        if args.sampling:
+            prefix = ".sample"
+        else:
+            prefix = ".bs"
+        fopt = io.open(os.path.join(args.results_path, args.valid_subset + prefix +  ".reconstruction"), "w", encoding='utf-8')
         # Generate and compute BLEU score
         if args.sacrebleu:
             scorer = bleu.SacrebleuScorer()
