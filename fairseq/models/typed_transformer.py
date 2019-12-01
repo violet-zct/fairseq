@@ -219,7 +219,8 @@ class TransformerDecoder(FairseqIncrementalDecoder):
 
     def __init__(self, args, dictionary, embed_tokens, decoder_embed_dim, decoder_attention_heads,
                  decoder_ffn_embed_dim, decoder_output_dim, max_target_positions, decoder_layers,
-                 encoder_embed_dim=-1, no_encoder_attn=False):
+                 encoder_embed_dim=-1, no_encoder_attn=False,
+                 mono_attn_shrink_ratio=-1, mono_attn_var=1.0, mono_attn_scale=1.):
         super().__init__(dictionary)
         self.register_buffer('version', torch.Tensor([3]))
 
@@ -249,7 +250,9 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         self.layers = nn.ModuleList([])
         self.layers.extend([
             TransformerDecoderLayer(args, decoder_embed_dim, decoder_attention_heads,
-                                    decoder_ffn_embed_dim, encoder_embed_dim, no_encoder_attn)
+                                    decoder_ffn_embed_dim, encoder_embed_dim, no_encoder_attn,
+                                    mono_attn_shrink_ratio=mono_attn_shrink_ratio,
+                                    mono_attn_var=mono_attn_var, mono_attn_scale=mono_attn_scale)
             for _ in range(decoder_layers)
         ])
 

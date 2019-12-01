@@ -165,3 +165,44 @@ class FullConvEncoder(FairseqEncoder):
             x, length, mask = block(x, length)
         x = self.quant_conv(x)  # B x C x T'
         return x.permute(2, 0, 1), mask
+
+
+class SingleKernelFullConvEncoder(FairseqEncoder):
+    def __init__(self, args, input_channel, kernels, strides, latent_dim, embed_tokens, dictionary):
+        super().__init__(dictionary)
+        # input_channel = embed_dim
+        self.padding_idx = embed_tokens.padding_idx
+        self.embed_tokens = embed_tokens
+        self.embed_scale = math.sqrt(input_channel)
+        self.embed_positions = PositionalEmbedding(DEFAULT_MAX_SOURCE_POSITIONS, input_channel, self.padding_idx, learned=args.encoder_learned_pos)
+        self.strides = strides
+        if len(kernels) == 1 and len(strides) == 1:
+            kernels.extend([kernels[0], kernels[0]])
+            strides.extend([1, 1])
+
+        self.conv_blocks = nn.ModuleList([])
+        self.conv_blocks.extend([ConvBlock(input_channel, k, s)
+                                 for k, s in zip(kernels, strides)])
+        self.quant_conv = nn.Conv1d(input_channel, latent_dim, 1)
+        self.dropout = args.dropout
+
+        self.pad_index = dictionary.pad_index
+        self.bos_index = dictionary.bos_index
+
+    def forward_embedding(self, src_tokens):
+        # embed tokens and positions
+        embed = self.embed_scale * self.embed_tokens(src_tokens)
+        if self.embed_positions is not None:
+            x = embed + self.embed_positions(src_tokens)
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        return x, embed
+
+    def forward(self, src_tokens, length):
+        x, encoder_embedding = self.forward_embedding(src_tokens)
+        encoding_mask = (~(src_tokens.eq(self.pad_index) | src_tokens.eq(self.bos_index))).type_as(x)
+        x = x * (encoding_mask.unsqueeze(-1))  # B x T x C
+        x = x.transpose(1, 2)
+        for block in self.conv_blocks:
+            x, length, mask = block(x, length)
+        x = self.quant_conv(x)  # B x C x T'
+        return x.permute(2, 0, 1), mask

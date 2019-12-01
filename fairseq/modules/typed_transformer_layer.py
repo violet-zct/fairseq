@@ -134,7 +134,8 @@ class TransformerDecoderLayer(nn.Module):
     """
 
     def __init__(self, args, decoder_embed_dim, decoder_attention_heads, decoder_ffn_embed_dim,
-                 encoder_embed_dim, no_encoder_attn=False, add_bias_kv=False, add_zero_attn=False):
+                 encoder_embed_dim, no_encoder_attn=False, add_bias_kv=False, add_zero_attn=False,
+                 mono_attn_shrink_ratio=0, mono_attn_var=1.0, mono_attn_scale=1.):
         super().__init__()
         self.embed_dim = decoder_embed_dim
         self.cross_self_attention = getattr(args, 'cross_self_attention', False)
@@ -173,6 +174,9 @@ class TransformerDecoderLayer(nn.Module):
                 vdim=encoder_embed_dim,
                 dropout=args.attention_dropout,
                 encoder_decoder_attention=True,
+                gaussion_prior_var=mono_attn_var,
+                kernel_size=mono_attn_shrink_ratio,
+                temperature_scale=mono_attn_scale,
             )
             self.encoder_attn_layer_norm = LayerNorm(self.embed_dim, export=export)
 

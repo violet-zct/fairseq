@@ -12,6 +12,7 @@ from fairseq.models.typed_transformer import (
 from fairseq.models.conv_encoder import (
     ConvEncoder,
     FullConvEncoder,
+    SingleKernelFullConvEncoder,
 )
 from fairseq.modules import PositionalEmbedding
 
@@ -33,9 +34,9 @@ def parse_kernel_and_strides(kernel, stride):
         return [list(map(int, ii.split('-'))) for ii in inpt.split(",")]
 
     kernels = _parse_kernels(kernel)
-    # check = [len(ii) == 1 for ii in kernels]
-    # if all(check):
-    #     kernels = [ii[0] for ii in kernels]
+    check = [len(ii) == 1 for ii in kernels]
+    if all(check):
+        kernels = [ii[0] for ii in kernels]
     return kernels, _parse(stride)
 
 
@@ -308,6 +309,12 @@ class VQVAE(FairseqLanguageModel):
                             help='mix=transformer+cnn, conv=fully cnn, append=transformer+pending positional embedding')
         parser.add_argument('--shrink-ratio', type=int, default=8,
                             help='used for append')
+        parser.add_argument('--mono-attn', type=int, default=0,
+                            help='use monotonic attention')
+        parser.add_argument('--mono-attn-var', type=float, default=1.,
+                            help='variance of normal gaussian in monotonic attention')
+        parser.add_argument('--mono-attn-scale', type=float, default=1.0,
+                            help='used to scale the gaussian density in monotonic attention')
         # fmt: on
 
     @classmethod
@@ -372,13 +379,18 @@ class VQVAE(FairseqLanguageModel):
     def build_encoder(cls, args, src_dict, embed_tokens):
         if args.encoder_form != 'append':
             kernels, strides = parse_kernel_and_strides(args.bottom_conv_kernel_size, args.bottom_conv_stride)
+        args.shrink_ratio = np.prod(strides)
         if args.encoder_form == 'mix':
             text_encoder = TransformerEncoder(args, src_dict, embed_tokens, args.max_source_positions,
                                               args.encoder_layers, args.encoder_embed_dim, args.encoder_attention_heads,
                                               args.encoder_ffn_embed_dim)
             text_conv_encoder = ConvEncoder(args.encoder_embed_dim, kernels, strides, args.bottom_latent_dim)
         elif args.encoder_form == 'conv':
-            text_encoder = FullConvEncoder(args, args.encoder_embed_dim, kernels, strides, args.bottom_latent_dim,
+            if isinstance(kernels[0], int):
+                text_encoder = SingleKernelFullConvEncoder(args, args.encoder_embed_dim, kernels, strides, args.bottom_latent_dim,
+                                           embed_tokens, src_dict)
+            else:
+                text_encoder = FullConvEncoder(args, args.encoder_embed_dim, kernels, strides, args.bottom_latent_dim,
                                            embed_tokens, src_dict)
             text_conv_encoder = None
         elif args.encoder_form == 'append':
@@ -404,6 +416,9 @@ class VQVAE(FairseqLanguageModel):
 
     @classmethod
     def build_decoder(cls, args, tgt_dict, embed_tokens):
+        use_mono_attn = getattr(args, 'mono_attn', 0)
+        mono_attn_var = getattr(args, 'mono_attn_var', 1.0)
+        mono_attn_scale = getattr(args, 'mono_attn_scale', 1.)
         text_decoder = TransformerDecoder(
             args,
             tgt_dict,
@@ -413,6 +428,9 @@ class VQVAE(FairseqLanguageModel):
             args.max_source_positions, args.decoder_layers,
             encoder_embed_dim=args.bottom_latent_dim,
             no_encoder_attn=getattr(args, 'no_cross_attention', False),
+            mono_attn_shrink_ratio=args.shrink_ratio if use_mono_attn else -1,
+            mono_attn_scale=mono_attn_scale,
+            mono_attn_var=mono_attn_var,
         )
         return text_decoder
 
