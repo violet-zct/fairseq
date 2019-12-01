@@ -278,8 +278,10 @@ class MultiheadAttention(nn.Module):
 
         if self.kernel_size > 0:
             # better disable attention dropout
-            cur_pos = cur_tgt_pos if cur_tgt_pos is not None else tgt_len
-            a = torch.arange(cur_pos).to(query.device).long() / self.kernel_size
+            if cur_tgt_pos is not None:
+                a = torch.LongTensor([cur_tgt_pos]).to(query.device) / self.kernel_size
+            else:
+                a = torch.arange(tgt_len).to(query.device).long() / self.kernel_size
             a = a.unsqueeze(1).expand(tgt_len, src_len)
             b = torch.arange(src_len).to(query.device).long().unsqueeze(0)
             prior = self.constant * torch.exp(-(torch.abs(a - b).float() ** 2 / (2 * self.gaussian_prior_var)))
