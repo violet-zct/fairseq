@@ -111,6 +111,7 @@ class MultiheadAttention(nn.Module):
         attn_mask=None,
         before_softmax=False,
         need_head_weights=False,
+        cur_tgt_pos=None,
     ):
         """Input shape: Time x Batch x Channel
 
@@ -277,9 +278,10 @@ class MultiheadAttention(nn.Module):
 
         if self.kernel_size > 0:
             # better disable attention dropout
-            a = torch.arange(tgt_len).to(key.device).long() / self.kernel_size
+            cur_pos = cur_tgt_pos if cur_tgt_pos is not None else tgt_len
+            a = torch.arange(cur_pos).to(query.device).long() / self.kernel_size
             a = a.unsqueeze(1).expand(tgt_len, src_len)
-            b = torch.arange(src_len).to(key.device).long().unsqueeze(0)
+            b = torch.arange(src_len).to(query.device).long().unsqueeze(0)
             prior = self.constant * torch.exp(-(torch.abs(a - b).float() ** 2 / (2 * self.gaussian_prior_var)))
             prior = torch.softmax(prior * self.temperature_scale, dim=-1)
 

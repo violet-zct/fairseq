@@ -203,6 +203,7 @@ class TransformerDecoderLayer(nn.Module):
         self_attn_padding_mask=None,
         need_attn=False,
         need_head_weights=False,
+        cur_tgt_pos=None,
     ):
         """
         Args:
@@ -219,7 +220,6 @@ class TransformerDecoderLayer(nn.Module):
         """
         if need_head_weights:
             need_attn = True
-
         residual = x
         x = self.maybe_layer_norm(self.self_attn_layer_norm, x, before=True)
         if prev_self_attn_state is not None:
@@ -276,6 +276,7 @@ class TransformerDecoderLayer(nn.Module):
                 static_kv=True,
                 need_weights=need_attn or (not self.training and self.need_attn),
                 need_head_weights=need_head_weights,
+                cur_tgt_pos=cur_tgt_pos,
             )
             x = F.dropout(x, p=self.dropout, training=self.training)
             x = residual + x

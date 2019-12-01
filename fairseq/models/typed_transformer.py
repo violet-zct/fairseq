@@ -349,6 +349,8 @@ class TransformerDecoder(FairseqIncrementalDecoder):
             incremental_state=incremental_state,
         ) if self.embed_positions is not None else None
 
+        cur_tgt_pos = None if incremental_state is None else prev_output_tokens.size(1)
+
         if incremental_state is not None:
             prev_output_tokens = prev_output_tokens[:, -1:]
             if positions is not None:
@@ -397,6 +399,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
                 self_attn_padding_mask=self_attn_padding_mask,
                 need_attn=(idx == alignment_layer or not self.training),
                 need_head_weights=(idx == alignment_layer),
+                cur_tgt_pos=cur_tgt_pos,
             )
 
             inner_states.append(x)
