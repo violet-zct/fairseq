@@ -134,8 +134,8 @@ class Quantize(nn.Module):
             embed_normalized = self.embed_avg / cluster_size.unsqueeze(0)
             self.embed.data.copy_(embed_normalized)
 
-            stats[prefix + 'moving_avg_cluster_mean'] = torch.mean(self.cluster_size)
-            stats[prefix + 'moving_avg_cluster_var'] = torch.var(self.cluster_size)
+            # stats[prefix + 'moving_avg_cluster_mean'] = torch.mean(self.cluster_size)
+            # stats[prefix + 'moving_avg_cluster_var'] = torch.var(self.cluster_size)
 
         input_mask = input_mask.type_as(input)
         quantize = quantize * input_mask.unsqueeze(-1)
@@ -370,8 +370,8 @@ class VQVAE(FairseqLanguageModel):
 
         if args.use_global_quantant:
             if args.global_latent_dim != args.decoder_embed_dim:
-                assert args.global_latent_dim % args.decoder_embed_dim == 0
-                k_global_codes = args.global_latent_dim // args.decoder_embed_dim
+                assert args.decoder_embed_dim % args.global_latent_dim == 0
+                k_global_codes = args.decoder_embed_dim // args.global_latent_dim
             else:
                 k_global_codes = 1
             global_quantizer = nn.ModuleList([Quantize(args, args.global_latent_dim, args.global_latent_k) for _ in range(k_global_codes)])
@@ -568,7 +568,7 @@ class VQVAE(FairseqLanguageModel):
                         }
 
         if self.global_quantizer is not None:
-            dummy_mask = mask.new_ones((1, encodings.size(1)))  # 1 x B
+            dummy_mask = mask.new_ones((1, text_conv_out.size(1)))  # 1 x B
             gvec = text_conv_out.mean(0)  # B x C
             gquants = []
             for ii, gquant in enumerate(self.global_quantizer):
@@ -576,7 +576,7 @@ class VQVAE(FairseqLanguageModel):
                 global_quantize, global_diff, global_embed_ind, \
                 global_quantize_stats = gquant(gvec[:, ii*d:(ii+1)*d].unsqueeze(0),
                                                 dummy_mask,
-                                                prefix="global_{}".format(ii))
+                                                prefix="global_{}_".format(ii))
                 diff = diff + global_diff
                 quantize_stats.update(global_quantize_stats)
                 gquants.append(global_quantize)
