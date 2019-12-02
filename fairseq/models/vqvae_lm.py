@@ -369,7 +369,12 @@ class VQVAE(FairseqLanguageModel):
             bottom_quantizer = None
 
         if args.use_global_quantant:
-            global_quantizer = Quantize(args, args.global_latent_dim, args.global_latent_k)
+            if args.global_latent_dim != args.decoder_embed_dim:
+                assert args.global_latent_dim % args.decoder_embed_dim == 0
+                k_global_codes = args.global_latent_dim // args.decoder_embed_dim
+            else:
+                k_global_codes = 1
+            global_quantizer = nn.ModuleList([Quantize(args, args.global_latent_dim, args.global_latent_k) for _ in range(k_global_codes)])
         else:
             global_quantizer = None
         return VQVAE(args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer, bottom_latent_encoder,
@@ -564,16 +569,20 @@ class VQVAE(FairseqLanguageModel):
 
         if self.global_quantizer is not None:
             dummy_mask = mask.new_ones((1, encodings.size(1)))  # 1 x B
-            global_quantize, global_diff, global_embed_ind, \
-            global_quantize_stats = self.global_quantizer(text_conv_out.mean(0).unsqueeze(0),  # 1 x B x C
-                                                          dummy_mask,
-                                                          updates=update_steps, prefix="global_")
-            diff = diff + global_diff
-            quantize_stats.update(global_quantize_stats)
-
+            gvec = text_conv_out.mean(0)  # B x C
+            gquants = []
+            for ii, gquant in enumerate(self.global_quantizer):
+                d = gquant.dim
+                global_quantize, global_diff, global_embed_ind, \
+                global_quantize_stats = gquant(gvec[:, ii*d:(ii+1)*d].unsqueeze(0),
+                                                dummy_mask,
+                                                prefix="global_{}".format(ii))
+                diff = diff + global_diff
+                quantize_stats.update(global_quantize_stats)
+                gquants.append(global_quantize)
             # quantize = torch.cat([global_quantize, quantize], dim=0)
             # mask = torch.cat([dummy_mask.transpose(0, 1), mask], dim=1)
-            quantize_out['global_quantize'] = global_quantize
+            quantize_out['global_quantize'] = torch.cat(gquants, dim=-1)
 
         if not self.training:
             if self.bottom_quantizer.soft:
