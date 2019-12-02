@@ -556,6 +556,12 @@ class VQVAE(FairseqLanguageModel):
             quantize = self.bottom_latent_encoder(src_encodings=quantize, encoder_padding_mask=~mask)
             quantize = quantize['encoder_out']
 
+        quantize_out = {'encoder_out': quantize,  # masked T X batch x C
+                        'encoder_padding_mask': ~mask,  # B x T, this mask sets padding to be True
+                        # 'encoder_embedding': text_encoder_out['encoder_embedding']  # B x T x C
+                        'encoder_embedding': None  # B x T x C
+                        }
+
         if self.global_quantizer is not None:
             dummy_mask = mask.new_ones((1, encodings.size(1)))  # 1 x B
             global_quantize, global_diff, global_embed_ind, \
@@ -564,14 +570,10 @@ class VQVAE(FairseqLanguageModel):
                                                           updates=update_steps, prefix="global_")
             diff = diff + global_diff
             quantize_stats.update(global_quantize_stats)
-            quantize = torch.cat([global_quantize, quantize], dim=0)
-            mask = torch.cat([dummy_mask.transpose(0, 1), mask], dim=1)
 
-        quantize_out = {'encoder_out': quantize,  # masked T X batch x C
-                        'encoder_padding_mask': ~mask,  # B x T, this mask sets padding to be True
-                        # 'encoder_embedding': text_encoder_out['encoder_embedding']  # B x T x C
-                        'encoder_embedding': None  # B x T x C
-                        }
+            # quantize = torch.cat([global_quantize, quantize], dim=0)
+            # mask = torch.cat([dummy_mask.transpose(0, 1), mask], dim=1)
+            quantize_out['global_quantize'] = global_quantize
 
         if not self.training:
             if self.bottom_quantizer.soft:

@@ -204,6 +204,7 @@ class TransformerDecoderLayer(nn.Module):
         need_attn=False,
         need_head_weights=False,
         cur_tgt_pos=None,
+        global_vector=None,
     ):
         """
         Args:
@@ -243,7 +244,7 @@ class TransformerDecoderLayer(nn.Module):
             y = x
 
         x, attn = self.self_attn(
-            query=x,
+            query=x if global_vector is None else x + global_vector,
             key=y,
             value=y,
             key_padding_mask=self_attn_padding_mask,
@@ -268,7 +269,7 @@ class TransformerDecoderLayer(nn.Module):
                 self.encoder_attn._set_input_buffer(incremental_state, saved_state)
 
             x, attn = self.encoder_attn(
-                query=x,
+                query=x if global_vector is None else x + global_vector,
                 key=encoder_out,
                 value=encoder_out,
                 key_padding_mask=encoder_padding_mask,

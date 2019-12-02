@@ -384,7 +384,10 @@ class TransformerDecoder(FairseqIncrementalDecoder):
                     encoder_state = encoder_out['encoder_states'][idx]
                 else:
                     encoder_state = encoder_out['encoder_out']
-
+                if 'global_quantize' in encoder_out:
+                    global_vector = encoder_out['global_quantize']  # 1 x B x C
+                else:
+                    global_vector = None
             if incremental_state is None and not full_context_alignment:
                 self_attn_mask = self.buffered_future_mask(x)
             else:
@@ -400,6 +403,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
                 need_attn=(idx == alignment_layer or not self.training),
                 need_head_weights=(idx == alignment_layer),
                 cur_tgt_pos=cur_tgt_pos,
+                global_vector=global_vector,
             )
 
             inner_states.append(x)
