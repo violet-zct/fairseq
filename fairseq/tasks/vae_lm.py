@@ -41,7 +41,8 @@ class VQVAELanguageModelingTask(LanguageModelingTask):
 
     def sampling(self, dummy_sample, codes, code_masks, model, generator, prefix_tokens=None):
         with torch.no_grad():
-            return generator.generate([model], dummy_sample, codes, code_masks, prefix_tokens=prefix_tokens)
+            return generator.generate([model], dummy_sample, codes=codes,
+                                      code_masks=code_masks, prefix_tokens=prefix_tokens)
 
     def build_generator(self, args):
         if getattr(args, 'score_reference', False):

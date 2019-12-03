@@ -1,5 +1,4 @@
 #!/usr/bin/env python3 -u
-#!/usr/bin/env python3 -u
 # Copyright (c) Facebook, Inc. and its affiliates.
 #
 # This source code is licensed under the MIT license found in the
@@ -76,7 +75,7 @@ def main(args, override_args=None):
             prefix = ".sample"
         else:
             prefix = ".bs"
-        fopt = io.open(os.path.join(args.results_path, args.valid_subset + prefix +  ".reconstruction"), "w", encoding='utf-8')
+        fopt = io.open(os.path.join(args.results_path, args.valid_subset + prefix + ".reconstruction"), "w", encoding='utf-8')
         # Generate and compute BLEU score
         if args.sacrebleu:
             scorer = bleu.SacrebleuScorer()
@@ -198,7 +197,7 @@ def main(args, override_args=None):
         gen_epochs = args.num_samples // batch_size
         latent_dictionary = prior_task.dictionary
         for ii in range(gen_epochs):
-            dummy_tokens = torch.ones(args.max_len_b, batch_size).long().cuda()
+            dummy_tokens = torch.ones(batch_size, args.max_len_b).long().cuda()
             dummy_lengths = (torch.ones(args.max_len_b) * args.max_len_b).long().cuda()
             dummy_samples = {
                         'net_input': {'src_tokens': dummy_tokens,
@@ -208,7 +207,7 @@ def main(args, override_args=None):
                         }
             prefix_tokens = None
             code_hypos = prior_task.inference_step(prior_generator, [prior_model], dummy_samples, prefix_tokens)
-            predictions = []
+            list_predictions = []
             for jj in range(batch_size):
                 code_hypo = code_hypos[jj][0]  # best output
                 latent_hypo_tokens, latent_hypo_str, _ = utils.post_process_prediction(
@@ -220,13 +219,13 @@ def main(args, override_args=None):
                     remove_bpe=None,
                 )
                 # should have no pad and eos
-                predictions.append([int(ss) for ss in latent_hypo_str.strip().split()])
-            predictions = torch.LongTensor(predictions).cuda()
+                list_predictions.append([int(ss) for ss in latent_hypo_str.strip().split()])
+            predictions = torch.LongTensor(list_predictions).cuda()
             merged_codes = data_utils.collate_tokens(
                 predictions, latent_dictionary.pad(), latent_dictionary.eos(), left_pad=False,
             )
             code_masks = merged_codes.eq(latent_dictionary.pad())
-            hypos = task.sampling(dummy_samples, merged_codes, code_masks, model, generator)
+            hypos, _ = task.sampling(dummy_samples, merged_codes, code_masks, model, generator)
             for tt in range(len(hypos)):
                 hypo = hypos[tt][0]
                 hypo_tokens, hypo_str, alignment = utils.post_process_prediction(
@@ -237,6 +236,7 @@ def main(args, override_args=None):
                     tgt_dict=dictionary,
                     remove_bpe=args.remove_bpe,
                 )
+                fopt.write('C-{}\t{}\n'.format(generate_id, " ".join(["c-%d" % kk for kk in list_predictions[tt] if kk != -1])))
                 fopt.write('H-{}\t{}\t{}\n'.format(generate_id, hypo['score'], hypo_str))
             generate_id += len(hypos)
 

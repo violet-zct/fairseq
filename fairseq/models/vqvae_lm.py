@@ -571,6 +571,7 @@ class VQVAE(FairseqLanguageModel):
             dummy_mask = mask.new_ones((1, text_conv_out.size(1)))  # 1 x B
             gvec = text_conv_out.mean(0)  # B x C
             gquants = []
+            gids = []
             for ii, gquant in enumerate(self.global_quantizer):
                 d = gquant.dim
                 global_quantize, global_diff, global_embed_ind, \
@@ -580,6 +581,10 @@ class VQVAE(FairseqLanguageModel):
                 diff = diff + global_diff
                 quantize_stats.update(global_quantize_stats)
                 gquants.append(global_quantize)
+
+                if gquant.soft:
+                    global_embed_ind = F.one_hot(global_embed_ind, gquant.n_embed).sum(1).max(1)
+                gids.append(global_embed_ind)  # batch_size
             # quantize = torch.cat([global_quantize, quantize], dim=0)
             # mask = torch.cat([dummy_mask.transpose(0, 1), mask], dim=1)
             quantize_out['global_quantize'] = torch.cat(gquants, dim=-1)
@@ -589,7 +594,9 @@ class VQVAE(FairseqLanguageModel):
                 _, embed_ind = F.one_hot(embed_ind, self.bottom_quantizer.n_embed).sum(1).max(1)
 
             embed_ind = embed_ind.view(*text_conv_out.shape[:-1])  # T x batch
-            codes = embed_ind.transpose(0, 1).masked_fill(~mask, -1)
+            codes = {'bottom_codes': embed_ind.transpose(0, 1).masked_fill(~mask, -1)}
+            if self.global_quantizer is not None:
+                codes['global_codes'] = gids
         else:
             codes = None
         return mask, diff, quantize_out, quantize_stats, codes
@@ -625,13 +632,14 @@ class VQVAE(FairseqLanguageModel):
         # global_codes: batch
         quantize = self.bottom_quantizer.embed_code(codes)  # T x batch x dim
 
+        # todo: global codes needs to be reimplemented
         if global_codes is not None:
             global_quantize = self.global_quantizer.embed_code(global_codes.unsqueeze(0))  # 1 x batch x dim
             dummy_mask = code_mask.new_zeros((code_mask.size(0)))  # B x 1
             quantize = torch.cat([global_quantize, quantize], dim=0)
             code_mask = torch.cat([dummy_mask.transpose(0, 1), code_mask], dim=1)
 
-        quantize_out = {'encoder_out': quantize,  # masked T X batch x C
+        quantize_out = {'encoder_out': quantize.transpose(0, 1),  # masked T X batch x C
                         'encoder_padding_mask': code_mask,  # B x T, this mask sets padding to be True
                         }
         return quantize_out
