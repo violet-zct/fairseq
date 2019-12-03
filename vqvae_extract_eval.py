@@ -45,6 +45,11 @@ def set_up_model(args, path, override_args=None):
     criterion = task.build_criterion(model_args)
     criterion.eval()
 
+    if model_args.task == 'language_modeling':
+        model_args.sampling = True
+        model_args.sampling_topk = 20
+        model_args.max_len_b = 80
+
     generator = task.build_generator(model_args)
     return model, task, criterion, generator
 
@@ -219,10 +224,9 @@ def main(args, override_args=None):
                     remove_bpe=None,
                 )
                 # should have no pad and eos
-                list_predictions.append([int(ss) for ss in latent_hypo_str.strip().split()])
-            predictions = torch.LongTensor(list_predictions).cuda()
+                list_predictions.append(torch.LongTensor([int(ss) for ss in latent_hypo_str.strip().split()]).cuda())
             merged_codes = data_utils.collate_tokens(
-                predictions, latent_dictionary.pad(), latent_dictionary.eos(), left_pad=False,
+                list_predictions, latent_dictionary.pad(), latent_dictionary.eos(), left_pad=False,
             )
             code_masks = merged_codes.eq(latent_dictionary.pad())
             hypos, _ = task.sampling(dummy_samples, merged_codes, code_masks, model, generator)
