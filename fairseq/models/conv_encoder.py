@@ -171,9 +171,12 @@ class SingleKernelFullConvEncoder(FairseqEncoder):
     def __init__(self, args, input_channel, kernels, strides, latent_dim, embed_tokens, dictionary):
         super().__init__(dictionary)
         # input_channel = embed_dim
+        self.pad_index = dictionary.pad_index
+        self.bos_index = dictionary.bos_index
+
         self.embed_tokens = embed_tokens
         self.embed_scale = math.sqrt(input_channel)
-        self.embed_positions = PositionalEmbedding(DEFAULT_MAX_SOURCE_POSITIONS, input_channel, self.padding_idx, learned=args.encoder_learned_pos)
+        self.embed_positions = PositionalEmbedding(DEFAULT_MAX_SOURCE_POSITIONS, input_channel, self.pad_idx, learned=args.encoder_learned_pos)
         self.strides = strides
         if len(kernels) == 1 and len(strides) == 1:
             kernels.extend([kernels[0], kernels[0]])
@@ -184,9 +187,6 @@ class SingleKernelFullConvEncoder(FairseqEncoder):
                                  for k, s in zip(kernels, strides)])
         self.quant_conv = nn.Conv1d(input_channel, latent_dim, 1)
         self.dropout = args.dropout
-
-        self.pad_index = dictionary.pad_index
-        self.bos_index = dictionary.bos_index
 
     def forward_embedding(self, src_tokens):
         # embed tokens and positions
