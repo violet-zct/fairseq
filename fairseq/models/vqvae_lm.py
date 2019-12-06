@@ -336,6 +336,8 @@ class VQVAE(FairseqLanguageModel):
 
         if not hasattr(args, 'max_source_positions'):
             args.max_source_positions = DEFAULT_MAX_SOURCE_POSITIONS
+        if not hasattr(args, 'max_target_positions'):
+            args.max_target_positions = DEFAULT_MAX_SOURCE_POSITIONS
 
         src_dict = task.source_dictionary
 
@@ -581,7 +583,8 @@ class VQVAE(FairseqLanguageModel):
                                                                               mask.transpose(0, 1).contiguous(),
                                                                               updates=update_steps)
             if self.args.use_deconv:
-                deconv_output = self.text_conv_encoder(quantize.permute(1, 2, 0), lengths, pad_num)
+                deconv_output = self.text_conv_encoder(quantize.permute(1, 2, 0), lengths, pad_num,
+                                                       full_tokens.ne(self.pad_index))
                 quantize = deconv_output.permute(2, 0, 1)
         else:
             quantize = text_conv_out

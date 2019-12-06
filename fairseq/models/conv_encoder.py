@@ -264,13 +264,13 @@ class SingleKernelFullDeConvEncoder(FairseqEncoder):
         self.pad_index = dictionary.pad_index
         self.bos_index = dictionary.bos_index
 
-    def forward(self, x, original_lengths, pad_num):
+    def forward(self, x, original_lengths, pad_num, mask):
         pad_lengths = original_lengths + pad_num
-        forward_masks = []
+        forward_masks = [mask]
         for s in self.strides[::-1]:
             original_lengths, pad_lengths, mask = compute_deconv_mask(original_lengths, pad_lengths, s)
             forward_masks.append(mask)
 
-        for m, deconv in zip(forward_masks[::-1], self.deconv_blocks):
+        for m, deconv in zip(forward_masks[::-1][1:], self.deconv_blocks):
             x = deconv(x, m)  # B x C x T
         return x
