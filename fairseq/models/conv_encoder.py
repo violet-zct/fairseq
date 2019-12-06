@@ -27,7 +27,7 @@ def compute_deconv_mask(original_lengths, max_pad_length, stride):
     # lengths: B
     # we use odd-number kernel
     valid_lengths = (original_lengths - 1) / stride + 1
-    max_length = (max_pad_length - 1) / stride + 1 if max_pad_length > 0 else torch.max(valid_lengths).item()
+    max_length = int((max_pad_length - 1) / stride) + 1 if max_pad_length > 0 else torch.max(valid_lengths).item()
     mask = torch.arange(max_length, device=original_lengths.device).type_as(original_lengths).expand(len(original_lengths), max_length)
     mask = mask < valid_lengths.unsqueeze(1)
     return valid_lengths, max_length, mask  # mask -> batch x T'
