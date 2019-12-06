@@ -409,7 +409,7 @@ class VQVAE(FairseqLanguageModel):
                                            embed_tokens, src_dict)
             if args.use_deconv:
                 # let's misuse the conv_encoder for deconvolutional encodder
-                text_conv_encoder = SingleKernelFullDeConvEncoder(args.encoder_embed_dim, kernels[::-1], strides[::-1])
+                text_conv_encoder = SingleKernelFullDeConvEncoder(args.encoder_embed_dim, kernels[::-1], strides[::-1], src_dict)
             else:
                 text_conv_encoder = None
         elif args.encoder_form == 'append':

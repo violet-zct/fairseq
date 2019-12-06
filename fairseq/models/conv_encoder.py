@@ -23,6 +23,17 @@ def compute_conv_mask(lengths, stride):
     return valid_lengths, mask  # mask -> batch x T'
 
 
+def compute_deconv_mask(original_lengths, padded_lengths, stride):
+    # lengths: B
+    # we use odd-number kernel
+    valid_lengths = (original_lengths - 1) / stride + 1
+    valid_pad_lengths = (padded_lengths - 1) / stride + 1
+    max_length = torch.max(valid_pad_lengths).item()
+    mask = torch.arange(max_length, device=original_lengths.device).type_as(original_lengths).expand(len(original_lengths), max_length)
+    mask = mask < valid_lengths.unsqueeze(1)
+    return valid_lengths, valid_pad_lengths, mask  # mask -> batch x T'
+
+
 class ConvEncoder(nn.Module):
     def __init__(self, input_channel, kernels, strides, latent_dim):
         super().__init__()
@@ -176,7 +187,8 @@ class SingleKernelFullConvEncoder(FairseqEncoder):
 
         self.embed_tokens = embed_tokens
         self.embed_scale = math.sqrt(input_channel)
-        self.embed_positions = PositionalEmbedding(DEFAULT_MAX_SOURCE_POSITIONS, input_channel, self.pad_idx, learned=args.encoder_learned_pos)
+        self.embed_positions = PositionalEmbedding(DEFAULT_MAX_SOURCE_POSITIONS, input_channel, self.pad_index,
+                                                   learned=args.encoder_learned_pos)
         self.strides = strides
         if len(kernels) == 1 and len(strides) == 1:
             kernels.extend([kernels[0], kernels[0]])
@@ -241,21 +253,23 @@ class DeConvBlock(nn.Module):
 
 class SingleKernelFullDeConvEncoder(FairseqEncoder):
     def __init__(self, input_channel, kernels, strides, dictionary):
+        super().__init__(dictionary)
         self.kernels = kernels
         self.strides = strides
 
         self.deconv_blocks = nn.ModuleList([])
-        self.deconv_blocks.extend([DeConvBlock(input_channel, k, s)]
-                                  for k, s in zip(kernels, strides))
+        self.deconv_blocks.extend([DeConvBlock(input_channel, k, s)
+                                  for k, s in zip(kernels, strides)])
 
         self.pad_index = dictionary.pad_index
         self.bos_index = dictionary.bos_index
 
-    def forward(self, latent_vectors, original_lengths):
-        forward_valid_lengths, forward_masks = [], []
+    def forward(self, x, original_lengths):
+        length_diff = x.size(2) - torch.max(original_lengths).item()
+        pad_lengths = original_lengths + length_diff
+        forward_masks = []
         for s in self.strides[::-1]:
-            original_lengths, mask = compute_conv_mask(original_lengths, s)
-            forward_valid_lengths.append(original_lengths)
+            original_lengths, pad_lengths, mask = compute_deconv_mask(original_lengths, pad_lengths, s)
             forward_masks.append(mask)
 
         for m, deconv in zip(forward_masks[::-1], self.deconv_blocks):
