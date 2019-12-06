@@ -268,7 +268,7 @@ class SingleKernelFullDeConvEncoder(FairseqEncoder):
         pad_length = torch.max(original_lengths).item() + pad_num
         forward_masks = [mask]
         for s in self.strides[::-1]:
-            original_lengths, pad_lengths, mask = compute_deconv_mask(original_lengths, pad_length, s)
+            original_lengths, pad_length, mask = compute_deconv_mask(original_lengths, pad_length, s)
             forward_masks.append(mask)
 
         for m, deconv in zip(forward_masks[::-1][1:], self.deconv_blocks):

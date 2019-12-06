@@ -21,7 +21,7 @@ from torch.nn import functional as F
 from torch import nn
 
 import numpy as np
-
+import math
 DEFAULT_MAX_SOURCE_POSITIONS = 1024
 DEFAULT_MAX_TARGET_POSITIONS = 1024
 
@@ -557,7 +557,7 @@ class VQVAE(FairseqLanguageModel):
             if self.args.use_deconv:
                 max_len = full_tokens.size(1)
                 if (max_len - 1) % self.shrink_ratio != 0:
-                    pad_num = (max_len - 1) % self.shrink_ratio + 1
+                    pad_num = math.ceil((max_len - 1) / self.shrink_ratio) * self.shrink_ratio + 1 - max_len
                     full_tokens = torch.cat([full_tokens, full_tokens.new_full((full_tokens.size(0), pad_num), self.pad_index)], dim=1)
             text_conv_out, mask = self.text_encoder(full_tokens, lengths, pad_num)
         elif self.encoder_form == 'append':
