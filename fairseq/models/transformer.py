@@ -493,6 +493,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         encoder_out=None,
         incremental_state=None,
         features_only=False,
+        aug_input='none',
         **extra_args,
     ):
         """
@@ -512,7 +513,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
                 - a dictionary with any model-specific outputs
         """
         x, extra = self.extract_features(
-            prev_output_tokens, encoder_out, incremental_state, **extra_args,
+            prev_output_tokens, encoder_out, incremental_state, **extra_args, aug_input=aug_input,
         )
         if not features_only:
             x = self.output_layer(x)
@@ -526,6 +527,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         full_context_alignment=False,
         alignment_layer=None,
         alignment_heads=None,
+        aug_input='none',
         **unused,
     ):
         """
@@ -556,6 +558,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
             incremental_state=incremental_state,
         ) if self.embed_positions is not None else None
 
+        cur_tgt_pos = None if incremental_state is None else prev_output_tokens.size(1)
         if incremental_state is not None:
             prev_output_tokens = prev_output_tokens[:, -1:]
             if positions is not None:
@@ -569,6 +572,13 @@ class TransformerDecoder(FairseqIncrementalDecoder):
 
         if positions is not None:
             x += positions
+
+        if aug_input == 'add':
+            if incremental_state is not None:
+                x += encoder_out['encoder_out'][cur_tgt_pos].unsqueeze(1)
+            else:
+                x += encoder_out['encoder_out']
+
         x = F.dropout(x, p=self.dropout, training=self.training)
 
         # B x T x C -> T x B x C

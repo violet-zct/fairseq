@@ -171,7 +171,6 @@ class SingleKernelFullConvEncoder(FairseqEncoder):
     def __init__(self, args, input_channel, kernels, strides, latent_dim, embed_tokens, dictionary):
         super().__init__(dictionary)
         # input_channel = embed_dim
-        self.padding_idx = embed_tokens.padding_idx
         self.embed_tokens = embed_tokens
         self.embed_scale = math.sqrt(input_channel)
         self.embed_positions = PositionalEmbedding(DEFAULT_MAX_SOURCE_POSITIONS, input_channel, self.padding_idx, learned=args.encoder_learned_pos)
@@ -206,3 +205,59 @@ class SingleKernelFullConvEncoder(FairseqEncoder):
             x, length, mask = block(x, length)
         x = self.quant_conv(x)  # B x C x T'
         return x.permute(2, 0, 1), mask
+
+
+class DeConvBlock(nn.Module):
+    def __init__(self, input_channel, kernel, stride):
+        super().__init__()
+        self.stride = stride
+        self.deconv1 = nn.ConvTranspose1d(input_channel, input_channel, kernel_size=kernel, padding=kernel//2, stride=stride)
+        self.bn1 = nn.BatchNorm1d(input_channel)
+        self.deconv2 = nn.ConvTranspose1d(input_channel, input_channel, kernel_size=kernel, padding=kernel//2)
+        self.bn2 = nn.BatchNorm1d(input_channel)
+        self.upsample = nn.Sequential(nn.ConvTranspose1d(input_channel, input_channel, 1, stride=stride),
+                                      nn.BatchNorm1d(input_channel))
+
+    def forward(self, x, mask):
+        # input: batch x C x T
+        # x is the compressed latent vectors, forward will expand it to the original size
+        residual = self.upsample(x)
+        m = mask.type_as(residual)
+
+        out = self.deconv1(x)
+        out = self.bn1(out)
+        out = F.relu(out)
+
+        out = out * m.unsqueeze(1)
+        out = self.deconv2(out)
+        out = self.bn2(out)
+
+        out = out + residual
+        out = F.relu(out)
+
+        out = out * m.unsqueeze(1)
+        return out
+
+
+class SingleKernelFullDeConvEncoder(FairseqEncoder):
+    def __init__(self, input_channel, kernels, strides, dictionary):
+        self.kernels = kernels
+        self.strides = strides
+
+        self.deconv_blocks = nn.ModuleList([])
+        self.deconv_blocks.extend([DeConvBlock(input_channel, k, s)]
+                                  for k, s in zip(kernels, strides))
+
+        self.pad_index = dictionary.pad_index
+        self.bos_index = dictionary.bos_index
+
+    def forward(self, latent_vectors, original_lengths):
+        forward_valid_lengths, forward_masks = [], []
+        for s in self.strides[::-1]:
+            original_lengths, mask = compute_conv_mask(original_lengths, s)
+            forward_valid_lengths.append(original_lengths)
+            forward_masks.append(mask)
+
+        for m, deconv in zip(forward_masks[::-1], self.deconv_blocks):
+            x = deconv(x, m)  # B x C x T
+        return x

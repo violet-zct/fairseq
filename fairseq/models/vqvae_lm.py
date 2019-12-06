@@ -7,12 +7,12 @@ from fairseq.models import (
 from fairseq.models.typed_transformer import (
     Embedding,
     TransformerEncoder,
-    TransformerDecoder,
 )
 from fairseq.models.conv_encoder import (
     ConvEncoder,
     FullConvEncoder,
     SingleKernelFullConvEncoder,
+    SingleKernelFullDeConvEncoder,
 )
 from fairseq.modules import PositionalEmbedding
 
@@ -182,6 +182,13 @@ class VQVAE(FairseqLanguageModel):
         self.encoder_form = getattr(args, 'encoder_form', 'mix')
         self.shrink_ratio = getattr(args, 'shrink_ratio', 8)
 
+        self.args = args
+        # todo: add append
+        if args.use_deconv:
+            self.aug_input = 'add'
+        else:
+            self.aug_input = 'none'
+
     @staticmethod
     def add_args(parser):
         """Add model-specific arguments to the parser."""
@@ -315,6 +322,9 @@ class VQVAE(FairseqLanguageModel):
                             help='variance of normal gaussian in monotonic attention')
         parser.add_argument('--mono-attn-scale', type=float, default=1.0,
                             help='used to scale the gaussian density in monotonic attention')
+
+        parser.add_argument('--use-deconv', type=int, default=0,
+                            help='apply deconvolution to latent vectors')
         # fmt: on
 
     @classmethod
@@ -397,7 +407,11 @@ class VQVAE(FairseqLanguageModel):
             else:
                 text_encoder = FullConvEncoder(args, args.encoder_embed_dim, kernels, strides, args.bottom_latent_dim,
                                            embed_tokens, src_dict)
-            text_conv_encoder = None
+            if args.use_deconv:
+                # let's misuse the conv_encoder for deconvolutional encodder
+                text_conv_encoder = SingleKernelFullDeConvEncoder(args.encoder_embed_dim, kernels[::-1], strides[::-1])
+            else:
+                text_conv_encoder = None
         elif args.encoder_form == 'append':
             text_encoder = TransformerEncoder(args, src_dict, embed_tokens, args.max_source_positions,
                                               args.encoder_layers, args.encoder_embed_dim, args.encoder_attention_heads,
@@ -421,22 +435,29 @@ class VQVAE(FairseqLanguageModel):
 
     @classmethod
     def build_decoder(cls, args, tgt_dict, embed_tokens):
-        use_mono_attn = getattr(args, 'mono_attn', 0)
-        mono_attn_var = getattr(args, 'mono_attn_var', 1.0)
-        mono_attn_scale = getattr(args, 'mono_attn_scale', 1.)
-        text_decoder = TransformerDecoder(
-            args,
-            tgt_dict,
-            embed_tokens,
-            args.decoder_embed_dim, args.decoder_attention_heads,
-            args.decoder_ffn_embed_dim, args.decoder_output_dim,
-            args.max_source_positions, args.decoder_layers,
-            encoder_embed_dim=args.bottom_latent_dim,
-            no_encoder_attn=getattr(args, 'no_cross_attention', False),
-            mono_attn_shrink_ratio=args.shrink_ratio if use_mono_attn else -1,
-            mono_attn_scale=mono_attn_scale,
-            mono_attn_var=mono_attn_var,
-        )
+        if args.no_cross_attention:
+            from fairseq.models.transformer import TransformerDecoder
+            text_decoder = TransformerDecoder(
+                args, tgt_dict, embed_tokens, no_encoder_attn=True,
+            )
+        else:
+            from fairseq.models.typed_transformer import TransformerDecoder
+            use_mono_attn = getattr(args, 'mono_attn', 0)
+            mono_attn_var = getattr(args, 'mono_attn_var', 1.0)
+            mono_attn_scale = getattr(args, 'mono_attn_scale', 1.)
+            text_decoder = TransformerDecoder(
+                args,
+                tgt_dict,
+                embed_tokens,
+                args.decoder_embed_dim, args.decoder_attention_heads,
+                args.decoder_ffn_embed_dim, args.decoder_output_dim,
+                args.max_source_positions, args.decoder_layers,
+                encoder_embed_dim=args.bottom_latent_dim,
+                no_encoder_attn=getattr(args, 'no_cross_attention', False),
+                mono_attn_shrink_ratio=args.shrink_ratio if use_mono_attn else -1,
+                mono_attn_scale=mono_attn_scale,
+                mono_attn_var=mono_attn_var,
+            )
         return text_decoder
 
     def mask_words(self, src_tokens, lengths):
@@ -531,6 +552,11 @@ class VQVAE(FairseqLanguageModel):
             text_conv_out, mask = self.text_conv_encoder(conv_inpt.permute(1, 2, 0),
                                                          lengths)  # B x C x T -> T' x B x C', C' = latent_dim
         elif self.encoder_form == 'conv':
+            if self.args.use_deconv:
+                max_len = full_tokens.size(1)
+                if (max_len - 1) % self.shrink_ratio != 0:
+                    pad_num = (max_len - 1) % self.shrink_ratio + 1
+                    full_tokens = full_tokens.new_full((full_tokens.size(0), pad_num), self.pad_index)
             text_conv_out, mask = self.text_encoder(full_tokens, lengths)
         elif self.encoder_form == 'append':
             aug_tokens, mask = self.create_aug_input(full_tokens, lengths)
@@ -552,6 +578,9 @@ class VQVAE(FairseqLanguageModel):
             quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out,
                                                                               mask.transpose(0, 1).contiguous(),
                                                                               updates=update_steps)
+            if self.args.use_deconv:
+                deconv_output = self.text_conv_encoder(quantize.permute(1, 2, 0), lengths)
+                quantize = deconv_output.permute(2, 0, 1)
         else:
             quantize = text_conv_out
             diff = text_conv_out.new_zeros(1)
@@ -602,7 +631,11 @@ class VQVAE(FairseqLanguageModel):
         return mask, diff, quantize_out, quantize_stats, codes
 
     def forward_decoder(self, decoder_tokens, encoder_out, incremental_state=None):
-        decoder_out = self.decoder(decoder_tokens, encoder_out=encoder_out, incremental_state=incremental_state)
+        if self.aug_input == 'add':
+            x = encoder_out['encoder_out']
+            encoder_out['encoder_out'] = torch.cat([x[1:], x.new_zeros(1, x.size(1), x.size(2))], dim=0)
+        decoder_out = self.decoder(decoder_tokens, encoder_out=encoder_out, incremental_state=incremental_state,
+                                   aug_input=self.aug_input)
         return decoder_out
 
     def reorder_encoder_out(self, encoder_out, new_order):
