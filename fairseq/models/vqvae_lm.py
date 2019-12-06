@@ -336,8 +336,7 @@ class VQVAE(FairseqLanguageModel):
 
         if not hasattr(args, 'max_source_positions'):
             args.max_source_positions = DEFAULT_MAX_SOURCE_POSITIONS
-        if not hasattr(args, 'max_target_positions'):
-            args.max_target_positions = DEFAULT_MAX_SOURCE_POSITIONS
+        args.max_target_positions = DEFAULT_MAX_SOURCE_POSITIONS
 
         src_dict = task.source_dictionary
 
@@ -538,6 +537,7 @@ class VQVAE(FairseqLanguageModel):
                     'encoder_states': encoder_states,  # List[T x B x C]
                 }
                 """
+        pad_num = 0
         if self.encoder_form == 'mix':
             encoder_attn_mask = self.create_mask(full_tokens)
             text_encoder_out = self.text_encoder(full_tokens, attn_mask=encoder_attn_mask)
@@ -559,9 +559,7 @@ class VQVAE(FairseqLanguageModel):
                 if (max_len - 1) % self.shrink_ratio != 0:
                     pad_num = (max_len - 1) % self.shrink_ratio + 1
                     full_tokens = torch.cat([full_tokens, full_tokens.new_full((full_tokens.size(0), pad_num), self.pad_index)], dim=1)
-                else:
-                    pad_num = 0
-            text_conv_out, mask = self.text_encoder(full_tokens, lengths)
+            text_conv_out, mask = self.text_encoder(full_tokens, lengths, pad_num)
         elif self.encoder_form == 'append':
             aug_tokens, mask = self.create_aug_input(full_tokens, lengths)
             text_encoder_out = self.text_encoder(full_tokens, auxilary_tokens=aug_tokens)

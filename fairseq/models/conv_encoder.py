@@ -23,15 +23,14 @@ def compute_conv_mask(lengths, stride):
     return valid_lengths, mask  # mask -> batch x T'
 
 
-def compute_deconv_mask(original_lengths, padded_lengths, stride):
+def compute_deconv_mask(original_lengths, max_pad_length, stride):
     # lengths: B
     # we use odd-number kernel
     valid_lengths = (original_lengths - 1) / stride + 1
-    valid_pad_lengths = (padded_lengths - 1) / stride + 1
-    max_length = torch.max(valid_pad_lengths).item()
+    max_length = (max_pad_length - 1) / stride + 1 if max_pad_length > 0 else torch.max(valid_lengths).item()
     mask = torch.arange(max_length, device=original_lengths.device).type_as(original_lengths).expand(len(original_lengths), max_length)
     mask = mask < valid_lengths.unsqueeze(1)
-    return valid_lengths, valid_pad_lengths, mask  # mask -> batch x T'
+    return valid_lengths, max_length, mask  # mask -> batch x T'
 
 
 class ConvEncoder(nn.Module):
@@ -69,10 +68,10 @@ class ConvBlock(nn.Module):
         self.downsample = nn.Sequential(nn.Conv1d(input_channel, output_channel, 1, stride=stride),
                                         nn.BatchNorm1d(output_channel))
 
-    def forward(self, x, input_length):
+    def forward(self, x, input_length, pad_length=0):
         # input: batch x C x T
 
-        new_length, new_mask = compute_conv_mask(input_length, self.stride)
+        new_length, new_padded_length, new_mask = compute_deconv_mask(input_length, pad_length, self.stride)
         residual = self.downsample(x)
         mask = new_mask.type_as(residual)
 
@@ -88,7 +87,7 @@ class ConvBlock(nn.Module):
         out = F.relu(out)
 
         out = out * mask.unsqueeze(1)
-        return out, new_length, new_mask
+        return out, new_length, new_mask, new_padded_length
 
 
 class MultiKernelConvBlock(nn.Module):
@@ -111,7 +110,7 @@ class MultiKernelConvBlock(nn.Module):
         self.downsample = nn.Sequential(nn.Conv1d(input_channel, output_channel, 1, stride=stride),
                                         nn.BatchNorm1d(output_channel))
 
-    def forward(self, x, input_length):
+    def forward(self, x, input_length, pad_num=0):
         # input: batch x C x T
 
         new_length, new_mask = compute_conv_mask(input_length, self.stride)
@@ -167,7 +166,7 @@ class FullConvEncoder(FairseqEncoder):
         x = F.dropout(x, p=self.dropout, training=self.training)
         return x, embed
 
-    def forward(self, src_tokens, length):
+    def forward(self, src_tokens, length, pad_num=0):
         x, encoder_embedding = self.forward_embedding(src_tokens)
         encoding_mask = (~(src_tokens.eq(self.pad_index) | src_tokens.eq(self.bos_index))).type_as(x)
         x = x * (encoding_mask.unsqueeze(-1))  # B x T x C
@@ -208,13 +207,14 @@ class SingleKernelFullConvEncoder(FairseqEncoder):
         x = F.dropout(x, p=self.dropout, training=self.training)
         return x, embed
 
-    def forward(self, src_tokens, length):
+    def forward(self, src_tokens, length, pad_num=0):
         x, encoder_embedding = self.forward_embedding(src_tokens)
         encoding_mask = (~(src_tokens.eq(self.pad_index) | src_tokens.eq(self.bos_index))).type_as(x)
         x = x * (encoding_mask.unsqueeze(-1))  # B x T x C
         x = x.transpose(1, 2)
+        pad_length = torch.max(length).item() + pad_num
         for block in self.conv_blocks:
-            x, length, mask = block(x, length)
+            x, length, mask, pad_length = block(x, length, pad_length)
         x = self.quant_conv(x)  # B x C x T'
         return x.permute(2, 0, 1), mask
 
@@ -265,10 +265,10 @@ class SingleKernelFullDeConvEncoder(FairseqEncoder):
         self.bos_index = dictionary.bos_index
 
     def forward(self, x, original_lengths, pad_num, mask):
-        pad_lengths = original_lengths + pad_num
+        pad_length = torch.max(original_lengths).item() + pad_num
         forward_masks = [mask]
         for s in self.strides[::-1]:
-            original_lengths, pad_lengths, mask = compute_deconv_mask(original_lengths, pad_lengths, s)
+            original_lengths, pad_lengths, mask = compute_deconv_mask(original_lengths, pad_length, s)
             forward_masks.append(mask)
 
         for m, deconv in zip(forward_masks[::-1][1:], self.deconv_blocks):
