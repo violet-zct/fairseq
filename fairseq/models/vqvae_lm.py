@@ -556,7 +556,9 @@ class VQVAE(FairseqLanguageModel):
                 max_len = full_tokens.size(1)
                 if (max_len - 1) % self.shrink_ratio != 0:
                     pad_num = (max_len - 1) % self.shrink_ratio + 1
-                    full_tokens = full_tokens.new_full((full_tokens.size(0), pad_num), self.pad_index)
+                    full_tokens = torch.cat([full_tokens, full_tokens.new_full((full_tokens.size(0), pad_num), self.pad_index)], dim=1)
+                else:
+                    pad_num = 0
             text_conv_out, mask = self.text_encoder(full_tokens, lengths)
         elif self.encoder_form == 'append':
             aug_tokens, mask = self.create_aug_input(full_tokens, lengths)
@@ -579,7 +581,7 @@ class VQVAE(FairseqLanguageModel):
                                                                               mask.transpose(0, 1).contiguous(),
                                                                               updates=update_steps)
             if self.args.use_deconv:
-                deconv_output = self.text_conv_encoder(quantize.permute(1, 2, 0), lengths)
+                deconv_output = self.text_conv_encoder(quantize.permute(1, 2, 0), lengths, pad_num)
                 quantize = deconv_output.permute(2, 0, 1)
         else:
             quantize = text_conv_out
