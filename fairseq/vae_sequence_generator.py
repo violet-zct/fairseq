@@ -141,21 +141,28 @@ class VAESequenceGenerator(object):
         src_len = input_size[1]
         beam_size = self.beam_size
 
-        if self.match_source_len:
-            max_len = src_lengths.max().item()
-        else:
-            max_len = min(
-                int(self.max_len_a * src_len + self.max_len_b),
-                # exclude the EOS marker
-                model.max_decoder_positions() - 1,
-            )
-
         if codes is not None:
             assert code_masks is not None
             encoder_outs = model.forward_quantization(codes, code_masks, global_codes)
         else:
             # compute the encoder output for each beam
             encoder_outs, codes = model.forward_encoder(src_tokens, src_lengths)
+
+        if self.match_source_len:
+            max_len = src_lengths.max().item()
+        else:
+            # max_len is a rough calculation, take the max position of a batch
+            if model.args.use_deconv:
+                max_len = min(encoder_outs['encoder_out'].size(1) - 1,
+                              model.max_decoder_positions() - 1,)
+            else:
+                max_len = min(encoder_outs['encoder_out'].size(0) * model.shrink_ratio - 1,
+                              model.max_decoder_positions() - 1,)
+            # max_len = min(
+            #     int(self.max_len_a * src_len + self.max_len_b),
+            #     # exclude the EOS marker
+            #     model.max_decoder_positions() - 1,
+            # )
         new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_size).view(-1)
         new_order = new_order.to(src_tokens.device).long()
         encoder_outs = model.reorder_encoder_out(encoder_outs, new_order)
@@ -520,6 +527,7 @@ class VAESequenceGenerator(object):
         # sort by score descending
         for sent in range(len(finalized)):
             finalized[sent] = sorted(finalized[sent], key=lambda r: r['score'], reverse=True)
+        codes = codes['bottom_codes']
         return finalized, codes
 
 

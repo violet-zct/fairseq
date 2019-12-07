@@ -167,7 +167,7 @@ class VQVAE(FairseqLanguageModel):
         self.add_latent_position = args.add_latent_positions
         if self.add_latent_position:
             self.latent_positional_embedding = PositionalEmbedding(
-            DEFAULT_MAX_SOURCE_POSITIONS, self.bottom_quantizer.dim, self.pad_index,
+            args.max_source_positions, self.bottom_quantizer.dim, self.pad_index,
             learned=args.decoder_learned_pos,
         )
 
@@ -336,7 +336,10 @@ class VQVAE(FairseqLanguageModel):
 
         if not hasattr(args, 'max_source_positions'):
             args.max_source_positions = DEFAULT_MAX_SOURCE_POSITIONS
-        args.max_target_positions = DEFAULT_MAX_SOURCE_POSITIONS
+            args.max_target_positions = DEFAULT_MAX_SOURCE_POSITIONS
+        else:
+            args.max_source_positions = args.max_source_positions
+            args.max_target_positions = args.max_source_positions
 
         src_dict = task.source_dictionary
 
@@ -654,6 +657,7 @@ class VQVAE(FairseqLanguageModel):
             *encoder_out* rearranged according to *new_order*
         """
         if encoder_out['encoder_out'] is not None:
+            idx = 0 if self.args.use_deconv else 1
             encoder_out['encoder_out'] = \
                 encoder_out['encoder_out'].index_select(1, new_order)
         if encoder_out['encoder_padding_mask'] is not None:

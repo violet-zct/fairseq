@@ -55,7 +55,7 @@ class VQVAELanguageModelingTask(LanguageModelingTask):
                 self.target_dictionary,
                 beam_size=getattr(args, 'beam', 5),
                 max_len_a=getattr(args, 'max_len_a', 0),
-                max_len_b=getattr(args, 'max_len_b', 200),
+                max_len_b=getattr(args, 'max_len_b', 1000),
                 min_len=getattr(args, 'min_len', 1),
                 normalize_scores=(not getattr(args, 'unnormalized', False)),
                 len_penalty=getattr(args, 'lenpen', 1),
