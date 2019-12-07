@@ -520,7 +520,7 @@ class VQVAE(FairseqLanguageModel):
         if self.training and self.word_drop_rate > 0.0:
             decoder_tokens = self.spacing_mask_words(decoder_tokens, lengths)
             # decoder_tokens = self.mask_words(decoder_tokens, lengths)
-        decoder_out = self.decoder(decoder_tokens, encoder_out=quantize_out)
+        decoder_out = self.forward_decoder(decoder_tokens, encoder_out=quantize_out)
         logits = decoder_out[0]
         return logits, diff, quantize_stats, mask.sum().type_as(diff)
 

@@ -209,7 +209,7 @@ class SingleKernelFullConvEncoder(FairseqEncoder):
 
     def forward(self, src_tokens, length, pad_num=0):
         x, encoder_embedding = self.forward_embedding(src_tokens)
-        encoding_mask = (~(src_tokens.eq(self.pad_index) | src_tokens.eq(self.bos_index))).type_as(x)
+        encoding_mask = src_tokens.ne(self.pad_index).type_as(x)
         x = x * (encoding_mask.unsqueeze(-1))  # B x T x C
         x = x.transpose(1, 2)
         pad_length = torch.max(length).item() + pad_num
