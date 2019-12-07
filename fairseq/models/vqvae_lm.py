@@ -583,7 +583,7 @@ class VQVAE(FairseqLanguageModel):
             if self.args.use_deconv:
                 deconv_output = self.text_conv_encoder(quantize.permute(1, 2, 0), lengths, pad_num,
                                                        full_tokens.ne(self.pad_index))
-                quantize = deconv_output.permute(2, 0, 1)
+                quantize = deconv_output.transpose(1, 2)
         else:
             quantize = text_conv_out
             diff = text_conv_out.new_zeros(1)
@@ -593,7 +593,7 @@ class VQVAE(FairseqLanguageModel):
             quantize = self.bottom_latent_encoder(src_encodings=quantize, encoder_padding_mask=~mask)
             quantize = quantize['encoder_out']
 
-        quantize_out = {'encoder_out': quantize,  # masked T X batch x C
+        quantize_out = {'encoder_out': quantize,  # masked T X batch x C  or B x T x C when use deconv
                         'encoder_padding_mask': ~mask,  # B x T, this mask sets padding to be True
                         # 'encoder_embedding': text_encoder_out['encoder_embedding']  # B x T x C
                         'encoder_embedding': None  # B x T x C
