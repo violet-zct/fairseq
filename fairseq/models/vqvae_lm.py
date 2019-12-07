@@ -636,7 +636,7 @@ class VQVAE(FairseqLanguageModel):
     def forward_decoder(self, decoder_tokens, encoder_out, incremental_state=None):
         if self.aug_input == 'add':
             x = encoder_out['encoder_out']
-            encoder_out['encoder_out'] = torch.cat([x[1:], x.new_zeros(1, x.size(1), x.size(2))], dim=0)
+            encoder_out['encoder_out'] = torch.cat([x[:, 1:, :], x.new_zeros(x.size(1), 1, x.size(2))], dim=1)
         decoder_out = self.decoder(decoder_tokens, encoder_out=encoder_out, incremental_state=incremental_state,
                                    aug_input=self.aug_input)
         return decoder_out
