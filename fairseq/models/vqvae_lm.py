@@ -538,6 +538,8 @@ class VQVAE(FairseqLanguageModel):
                 }
                 """
         pad_num = 0
+        max_len = full_tokens.size(1)
+
         if self.encoder_form == 'mix':
             encoder_attn_mask = self.create_mask(full_tokens)
             text_encoder_out = self.text_encoder(full_tokens, attn_mask=encoder_attn_mask)
@@ -555,7 +557,6 @@ class VQVAE(FairseqLanguageModel):
                                                          lengths)  # B x C x T -> T' x B x C', C' = latent_dim
         elif self.encoder_form == 'conv':
             if self.args.use_deconv:
-                max_len = full_tokens.size(1)
                 if (max_len - 1) % self.shrink_ratio != 0:
                     pad_num = math.ceil((max_len - 1) / self.shrink_ratio) * self.shrink_ratio + 1 - max_len
                     full_tokens = torch.cat([full_tokens, full_tokens.new_full((full_tokens.size(0), pad_num), self.pad_index)], dim=1)
@@ -583,7 +584,7 @@ class VQVAE(FairseqLanguageModel):
             if self.args.use_deconv:
                 deconv_output = self.text_conv_encoder(quantize.permute(1, 2, 0), lengths, pad_num,
                                                        full_tokens.ne(self.pad_index))
-                quantize = deconv_output.transpose(1, 2)
+                quantize = deconv_output.transpose(1, 2)[:, :max_len, :] # B x T x C
         else:
             quantize = text_conv_out
             diff = text_conv_out.new_zeros(1)
@@ -636,7 +637,7 @@ class VQVAE(FairseqLanguageModel):
     def forward_decoder(self, decoder_tokens, encoder_out, incremental_state=None):
         if self.aug_input == 'add':
             x = encoder_out['encoder_out']
-            encoder_out['encoder_out'] = torch.cat([x[:, 1:, :], x.new_zeros(x.size(1), 1, x.size(2))], dim=1)
+            encoder_out['encoder_out'] = torch.cat([x[:, 1:, :], x.new_zeros(x.size(0), 1, x.size(2))], dim=1)
         decoder_out = self.decoder(decoder_tokens, encoder_out=encoder_out, incremental_state=incremental_state,
                                    aug_input=self.aug_input)
         return decoder_out
