@@ -555,6 +555,9 @@ class EnsembleModel(torch.nn.Module):
         encodings = []
         for model in self.models:
             _, _, encoder_out, _, codes = model.forward_encoder(source_tokens, lengths)
+            if model.args.use_deconv:
+                x = encoder_out['encoder_out']
+                encoder_out['encoder_out'] = torch.cat([x[:, 1:, :], x.new_zeros(x.size(0), 1, x.size(2))], dim=1)
             encodings.append(encoder_out)
         return encodings, codes
 
