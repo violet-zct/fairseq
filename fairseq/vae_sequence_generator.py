@@ -152,11 +152,11 @@ class VAESequenceGenerator(object):
             max_len = src_lengths.max().item()
         else:
             # max_len is a rough calculation, take the max position of a batch
-            if model.args.use_deconv:
-                max_len = min(encoder_outs['encoder_out'].size(1) - 1,
+            if model.models[0].args.use_deconv:
+                max_len = min(encoder_outs[0]['encoder_out'].size(1) - 1,
                               model.max_decoder_positions() - 1,)
             else:
-                max_len = min(encoder_outs['encoder_out'].size(0) * model.shrink_ratio - 1,
+                max_len = min(encoder_outs[0]['encoder_out'].size(0) * model.shrink_ratio - 1,
                               model.max_decoder_positions() - 1,)
             # max_len = min(
             #     int(self.max_len_a * src_len + self.max_len_b),

@@ -659,7 +659,7 @@ class VQVAE(FairseqLanguageModel):
         if encoder_out['encoder_out'] is not None:
             idx = 0 if self.args.use_deconv else 1
             encoder_out['encoder_out'] = \
-                encoder_out['encoder_out'].index_select(1, new_order)
+                encoder_out['encoder_out'].index_select(idx, new_order)
         if encoder_out['encoder_padding_mask'] is not None:
             encoder_out['encoder_padding_mask'] = \
                 encoder_out['encoder_padding_mask'].index_select(0, new_order)
