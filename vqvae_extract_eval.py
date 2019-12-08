@@ -171,14 +171,15 @@ def main(args, override_args=None):
                                 tgt_dict=dictionary,
                                 remove_bpe=args.remove_bpe,
                             )
-                            hypo_attn = hypo['attention'].cpu().numpy()  # src_len x tgt_len
-                            entropy, max_idx = compute_attn(hypo_attn)
-                            baseline_entropy = hypo_attn.shape[0] * math.log(1./hypo_attn.shape[0]) * 1.0/hypo_attn.shape[0]
                             fopt.write('H-{}\t{}\t{}\n'.format(sample_id, hypo['score'], hypo_str))
                             fopt.write('C-{}\n'.format(" ".join(["c-%d" % kk for kk in code if kk != -1])))
-                            fopt.write('A-entropy-baseline-{:.2f}\n'.format(baseline_entropy))
-                            fopt.write('A-entropy-{}\n'.format(" ".join(["%.2f" % e for e in entropy])))
-                            fopt.write('A-max-attn-pos-{}\n'.format(" ".join([str(kk) for kk in max_idx])))
+                            if hypo['attention'] is not None:
+                                hypo_attn = hypo['attention'].cpu().numpy()  # src_len x tgt_len
+                                entropy, max_idx = compute_attn(hypo_attn)
+                                baseline_entropy = hypo_attn.shape[0] * math.log(1./hypo_attn.shape[0]) * 1.0/hypo_attn.shape[0]
+                                fopt.write('A-entropy-baseline-{:.2f}\n'.format(baseline_entropy))
+                                fopt.write('A-entropy-{}\n'.format(" ".join(["%.2f" % e for e in entropy])))
+                                fopt.write('A-max-attn-pos-{}\n'.format(" ".join([str(kk) for kk in max_idx])))
                             fopt.write('\n')
                             if args.remove_bpe is not None:
                                 # Convert back to tokens for evaluation with unk replacement and/or without BPE
