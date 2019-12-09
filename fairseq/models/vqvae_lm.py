@@ -587,7 +587,7 @@ class VQVAE(FairseqLanguageModel):
             if self.args.use_deconv:
                 deconv_output = self.text_conv_encoder(quantize.permute(1, 2, 0), lengths, pad_num,
                                                        full_tokens.ne(self.pad_index))
-                quantize = deconv_output.transpose(1, 2)[:, :max_len, :] # B x T x C
+                quantize = deconv_output.transpose(1, 2)[:, :max_len, :]  # B x T x C
         else:
             quantize = text_conv_out
             diff = text_conv_out.new_zeros(1)
@@ -680,9 +680,20 @@ class VQVAE(FairseqLanguageModel):
             quantize = torch.cat([global_quantize, quantize], dim=0)
             code_mask = torch.cat([dummy_mask.transpose(0, 1), code_mask], dim=1)
 
+        if self.args.use_deconv:
+            valid = ~code_mask
+            lengths = (torch.sum(valid, dim=1).long() - 1) * self.shrink_ratio + 1
+            max_length = torch.max(lengths).item()
+            dummy_mask = torch.arange(max_length, device=codes.device).type_as(lengths).expand(len(lengths), max_length)
+            dummy_mask = dummy_mask < lengths
+            deconv_output = self.text_conv_encoder(quantize.permute(1, 2, 0), lengths, pad_num=0,
+                                                   mask=dummy_mask)
+            quantize = deconv_output.transpose(1, 2)[:, :max_length, :]  # B x T x C
+
         quantize_out = {'encoder_out': quantize.transpose(0, 1),  # masked T X batch x C
                         'encoder_padding_mask': code_mask,  # B x T, this mask sets padding to be True
                         }
+
         return quantize_out
 
 

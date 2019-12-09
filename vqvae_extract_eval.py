@@ -202,6 +202,7 @@ def main(args, override_args=None):
         batch_size = 3072 // args.max_len_b
         gen_epochs = args.num_samples // batch_size
         latent_dictionary = prior_task.dictionary
+        latent_dictionary_size = len(latent_dictionary)
         for ii in range(gen_epochs):
             dummy_tokens = torch.ones(batch_size, args.max_len_b).long().cuda()
             dummy_lengths = (torch.ones(args.max_len_b) * args.max_len_b).long().cuda()
@@ -227,9 +228,10 @@ def main(args, override_args=None):
                 # should have no pad and eos
                 list_predictions.append(torch.LongTensor([int(ss) for ss in latent_hypo_str.strip().split()]).cuda())
             merged_codes = data_utils.collate_tokens(
-                list_predictions, latent_dictionary.pad(), latent_dictionary.eos(), left_pad=False,
+                list_predictions, latent_dictionary_size, left_pad=False,
             )
-            code_masks = merged_codes.eq(latent_dictionary.pad())
+            code_masks = merged_codes.eq(latent_dictionary_size)
+            merged_codes = merged_codes.masked_fill_(code_masks, 0)
             hypos, _ = task.sampling(dummy_samples, merged_codes, code_masks, model, generator)
             for tt in range(len(hypos)):
                 hypo = hypos[tt][0]
