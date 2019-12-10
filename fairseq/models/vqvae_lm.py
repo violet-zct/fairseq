@@ -669,9 +669,9 @@ class VQVAE(FairseqLanguageModel):
         return encoder_out
 
     def quantization(self, codes, code_mask, global_codes=None):
-        # codes: T x batch; code_mask: batch x T; mask here sets pad to be True
+        # codes: batch x T; code_mask: batch x T; mask here sets pad to be True
         # global_codes: batch
-        quantize = self.bottom_quantizer.embed_code(codes)  # T x batch x dim
+        quantize = self.bottom_quantizer.embed_code(codes)  # batch x T x dim
 
         # todo: global codes needs to be reimplemented
         if global_codes is not None:
@@ -685,8 +685,8 @@ class VQVAE(FairseqLanguageModel):
             lengths = (torch.sum(valid, dim=1).long() - 1) * self.shrink_ratio + 1
             max_length = torch.max(lengths).item()
             dummy_mask = torch.arange(max_length, device=codes.device).type_as(lengths).expand(len(lengths), max_length)
-            dummy_mask = dummy_mask < lengths
-            deconv_output = self.text_conv_encoder(quantize.permute(1, 2, 0), lengths, pad_num=0,
+            dummy_mask = dummy_mask < lengths.unsqueeze(1)
+            deconv_output = self.text_conv_encoder(quantize.transpose(1, 2), lengths, pad_num=0,
                                                    mask=dummy_mask)
             quantize = deconv_output.transpose(1, 2)[:, :max_length, :]  # B x T x C
 

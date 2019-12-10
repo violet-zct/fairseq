@@ -527,7 +527,8 @@ class VAESequenceGenerator(object):
         # sort by score descending
         for sent in range(len(finalized)):
             finalized[sent] = sorted(finalized[sent], key=lambda r: r['score'], reverse=True)
-        codes = codes['bottom_codes']
+        if isinstance(codes, dict):
+            codes = codes['bottom_codes']
         return finalized, codes
 
 
