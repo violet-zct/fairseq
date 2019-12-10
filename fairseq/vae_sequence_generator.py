@@ -156,7 +156,7 @@ class VAESequenceGenerator(object):
                 max_len = min(encoder_outs[0]['encoder_out'].size(1) - 1,
                               model.max_decoder_positions() - 1,)
             else:
-                max_len = min(encoder_outs[0]['encoder_out'].size(0) * model.shrink_ratio - 1,
+                max_len = min(encoder_outs[0]['encoder_out'].size(0) * model.models[0].shrink_ratio - 1,
                               model.max_decoder_positions() - 1,)
             # max_len = min(
             #     int(self.max_len_a * src_len + self.max_len_b),

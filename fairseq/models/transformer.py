@@ -558,7 +558,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
             incremental_state=incremental_state,
         ) if self.embed_positions is not None else None
 
-        cur_tgt_pos = None if incremental_state is None else min(prev_output_tokens.size(1),
+        cur_tgt_pos = None if incremental_state is None or encoder_out is None else min(prev_output_tokens.size(1),
                                                                  encoder_out['encoder_out'].size(1))
         if incremental_state is not None:
             prev_output_tokens = prev_output_tokens[:, -1:]
