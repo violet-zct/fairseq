@@ -97,7 +97,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             'sample_size': sample_size,
         }
         if not self.training:
-            codes = net_output[-1]  # B x T
+            codes = net_output[-1]['bottom_codes']  # B x T
             logging_output['unique_codes'] = torch.unique(codes)
         logging_output.update(quantize_stats)
         if self.training:
