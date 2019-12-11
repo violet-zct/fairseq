@@ -134,7 +134,10 @@ def main(args, override_args=None):
                 num_sentences += sample['nsentences']
 
                 if eval_task == 'code_extract':
-                    codes = task.extract_codes(sample, model).cpu().numpy()
+                    codes = task.extract_codes(sample, model)
+                    if args.valid_subset == 'valid':
+                        all_codes.update(torch.unique(codes).tolist())
+                    codes = codes.cpu().numpy()
                 elif eval_task == 'reconstruct':
                     prefix_tokens = None
                     gen_timer.start()
@@ -143,9 +146,6 @@ def main(args, override_args=None):
                     gen_timer.stop(num_generated_tokens)
                     wps_meter.update(num_generated_tokens)
                     progress.log({'wps': round(wps_meter.avg)})
-
-                    if args.valid_subset == 'valid':
-                        all_codes.update(torch.unique(codes).tolist())
                 else:
                     raise NotImplementedError
 
