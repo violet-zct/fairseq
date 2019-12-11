@@ -66,6 +66,9 @@ class Quantize(nn.Module):
         self.register_buffer('cluster_size', torch.zeros(n_embed))
         self.register_buffer('embed_avg', embed.clone())
 
+        self.exploration_steps = args.quantize_explore_steps
+        self.most_attend_k = int(self.n_embed * 0.6)
+
     def get_temperature(self, updates):
         if updates == -1:
             return self.min_temp
@@ -83,7 +86,12 @@ class Quantize(nn.Module):
             flatten.pow(2).sum(1, keepdim=True)  # S x 1
             - 2 * flatten @ self.embed   # S x C @ C x K
             + self.embed.pow(2).sum(0, keepdim=True)  # 1 x K
-        )
+        )  # S x K
+
+        if self.training and updates < self.exploration_steps:
+            sorted_cluster_size, sorted_indices = torch.sort(self.cluster_size, descending=True)
+            most_attend_codes = sorted_indices[:self.most_attend_k]
+            dist = dist.index_fill_(1, most_attend_codes, float('-inf'))
 
         if self.soft:
             tau = self.get_temperature(updates)
@@ -328,6 +336,7 @@ class VQVAE(FairseqLanguageModel):
                             help='apply deconvolution to latent vectors')
         parser.add_argument('--drop-emb', type=float, default=0.0,
                             help='drop embedding in input embedding of transformer decoder, when use deconv')
+        parser.add_argument('--quantize-explore-steps', type=int, default=-1,)
         # fmt: on
 
     @classmethod

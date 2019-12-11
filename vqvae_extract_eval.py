@@ -126,6 +126,7 @@ def main(args, override_args=None):
 
             log_outputs = []
             wps_meter = TimeMeter()
+            all_codes = set()
             for jj, sample in enumerate(progress):
                 sample = utils.move_to_cuda(sample) if use_cuda else sample
                 log_output = {'sample_size': sample['target'].size(0)}
@@ -142,6 +143,9 @@ def main(args, override_args=None):
                     gen_timer.stop(num_generated_tokens)
                     wps_meter.update(num_generated_tokens)
                     progress.log({'wps': round(wps_meter.avg)})
+
+                    if args.valid_subset == 'valid':
+                        all_codes.update(torch.unique(codes).tolist())
                 else:
                     raise NotImplementedError
 
@@ -191,9 +195,10 @@ def main(args, override_args=None):
                     else:
                         raise NotImplementedError
                 generate_id += len(sample['id'])
-                if generate_id % 100000 == 0:
+                if generate_id % 1000 == 0:
                     print("Processed {} lines!".format(i))
-            progress.print(log_outputs[0], tag=subset, step=i)
+                progress.print(log_outputs[0], tag=subset, step=i)
+            print("Total unique active codes = {}".format(len(all_codes)))
         if eval_task == 'reconstruct':
             print('| Reconstructed {} sentences ({} tokens) in {:.1f}s ({:.2f} sentences/s, {:.2f} tokens/s)'.format(
                 num_sentences, gen_timer.n, gen_timer.sum, num_sentences / gen_timer.sum, 1. / gen_timer.avg))
