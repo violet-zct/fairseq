@@ -91,7 +91,7 @@ class Quantize(nn.Module):
         if self.training and updates < self.exploration_steps:
             sorted_cluster_size, sorted_indices = torch.sort(self.cluster_size, descending=True)
             most_attend_codes = sorted_indices[:self.most_attend_k]
-            dist = dist.index_fill_(1, most_attend_codes, float('-inf'))
+            dist = dist.index_fill_(1, most_attend_codes, float('inf'))
 
         if self.soft:
             tau = self.get_temperature(updates)
