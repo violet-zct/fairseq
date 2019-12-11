@@ -487,6 +487,25 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         else:
             self.layer_norm = None
 
+        self.drop_emb = getattr(args, 'drop_emb', 0.0)
+
+    def mask_words(self, tokens):
+        batch = tokens.size(0)
+        src_masks = tokens.eq(self.padding_idx) | tokens.eq(self.dictionary.eos())
+        lengths = (~src_masks).sum(dim=1).type_as(tokens)
+        full_length = tokens.size(1)
+        if full_length <= 2:
+            return torch.ones_like(tokens)
+        mask_lengths = (lengths.float() * self.drop_emb).long()
+        mask = torch.arange(full_length).to(tokens.device).unsqueeze(0).expand(batch, full_length).ge(
+            mask_lengths.unsqueeze(1))
+        mask = mask.long()
+        scores = tokens.clone().float().uniform_()
+        scores.masked_fill_(src_masks, -1)
+        sorted_values, sorted_idx = torch.sort(scores, dim=-1, descending=True)
+        mask = mask.scatter(1, sorted_idx, mask)  # 0 are dropped words
+        return mask
+
     def forward(
         self,
         prev_output_tokens,
@@ -567,6 +586,10 @@ class TransformerDecoder(FairseqIncrementalDecoder):
 
         # embed tokens and positions
         x = self.embed_scale * self.embed_tokens(prev_output_tokens)
+
+        if self.training and self.drop_emb > 0:
+            mask = self.mask_words(prev_output_tokens)
+            x = x * mask.type_as(x).unsqueeze(-1)
 
         if self.project_in_dim is not None:
             x = self.project_in_dim(x)

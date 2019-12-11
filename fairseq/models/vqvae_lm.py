@@ -325,6 +325,8 @@ class VQVAE(FairseqLanguageModel):
 
         parser.add_argument('--use-deconv', type=int, default=0,
                             help='apply deconvolution to latent vectors')
+        parser.add_argument('--drop-emb', type=float, default=0.0,
+                            help='drop embedding in input embedding of transformer decoder, when use deconv')
         # fmt: on
 
     @classmethod
@@ -519,13 +521,13 @@ class VQVAE(FairseqLanguageModel):
         return aug_tokens, mask
 
     def forward(self, decoder_tokens, lengths, full_tokens, update_steps, **kwargs):
-        mask, diff, quantize_out, quantize_stats, _ = self.forward_encoder(full_tokens, lengths, update_steps)
+        mask, diff, quantize_out, quantize_stats, codes = self.forward_encoder(full_tokens, lengths, update_steps)
         if self.training and self.word_drop_rate > 0.0:
             decoder_tokens = self.spacing_mask_words(decoder_tokens, lengths)
             # decoder_tokens = self.mask_words(decoder_tokens, lengths)
         decoder_out = self.forward_decoder(decoder_tokens, encoder_out=quantize_out)
         logits = decoder_out[0]
-        return logits, diff, quantize_stats, mask.sum().type_as(diff)
+        return logits, diff, quantize_stats, mask.sum().type_as(diff), codes
 
         # todo: prior model - one decoder, one encoder-decoder
         # todo: hierarchical model
@@ -638,7 +640,7 @@ class VQVAE(FairseqLanguageModel):
         return mask, diff, quantize_out, quantize_stats, codes
 
     def forward_decoder(self, decoder_tokens, encoder_out, incremental_state=None):
-        if self.aug_input == 'add' and incremental_state is None:
+        if False and self.aug_input == 'add' and incremental_state is None:
             x = encoder_out['encoder_out']
             encoder_out['encoder_out'] = torch.cat([x[:, 1:, :], x.new_zeros(x.size(0), 1, x.size(2))], dim=1)
         decoder_out = self.decoder(decoder_tokens, encoder_out=encoder_out, incremental_state=incremental_state,

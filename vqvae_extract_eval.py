@@ -245,7 +245,7 @@ def main(args, override_args=None):
                 )
                 fopt.write('C-{}\t{}\n'.format(generate_id, " ".join(["c-%d" % kk for kk in list_predictions[tt] if kk != -1])))
                 fopt.write('H-{}\t{}\t{}\n'.format(generate_id, hypo['score'], hypo_str))
-            generate_id += len(hypos)
+                generate_id += 1
 
             if generate_id % 1000 == 0:
                 print("Sampled {} sentences!".format(generate_id))
