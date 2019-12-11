@@ -316,6 +316,7 @@ class VQVAE(FairseqLanguageModel):
                             help='mix=transformer+cnn, conv=fully cnn, append=transformer+pending positional embedding')
         parser.add_argument('--shrink-ratio', type=int, default=8,
                             help='used for append')
+        # todo: remove mono including multi-attention modifications
         parser.add_argument('--mono-attn', type=int, default=0,
                             help='use monotonic attention')
         parser.add_argument('--mono-attn-var', type=float, default=1.,
