@@ -139,7 +139,7 @@ def main(args, override_args=None):
                         all_codes.update(torch.unique(codes).tolist())
                     codes = codes.cpu().numpy()
                 elif eval_task == 'reconstruct':
-                    prefix_tokens = None
+                    prefix_tokens = None if args.prefix_num == 0 else sample['target'][:, :args.prefix_num]
                     gen_timer.start()
                     hypos, codes = task.reconstruct(sample, model, generator, prefix_tokens)
                     num_generated_tokens = sum(len(h[0]['tokens']) for h in hypos)

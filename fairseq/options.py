@@ -447,6 +447,7 @@ def add_eval_vqvae_args(parser):
     group.add_argument('--eval-task', type=str, choices=['code_extract', 'reconstruct', 'sampling'])
     group.add_argument('--num-samples', type=int, default=10000,
                        help='number of samples to be sampled from the prior then generation')
+    parser.add_argument('--prefix-num', type=int, default=0)
 
 
 def add_eval_lm_args(parser):
