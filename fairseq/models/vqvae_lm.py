@@ -604,7 +604,8 @@ class VQVAE(FairseqLanguageModel):
 
         if self.encoder_opt_dropout > 0.0:
             text_conv_out = F.dropout(text_conv_out, p=self.encoder_opt_dropout, training=self.training)
-        
+
+        word_predict = None
         if self.bottom_quantizer is not None and (update_steps > self.pretrain_steps or not self.training):
             # diff is the loss to update the enocder
             # quantize: masked T X batch x C; diff: scalar; embed_ind: T x batch
@@ -614,17 +615,16 @@ class VQVAE(FairseqLanguageModel):
             # assume currently we are using deconv, so the input are padded to be multiple times of the shrink_ratio + 1
             if self.training and self.aug_loss == 'code_bow':
                 # T' x batch x C -> batch x T x C
-                batch_size, T_prime, D = quantize.size()
+                T_prime, batch_size, D = quantize.size()
                 expand_quantize = quantize.transpose(0, 1).unsqueeze(2).expand(batch_size, T_prime, self.shrink_ratio, D).reshape(batch_size, -1, D)
                 expand_quantize = expand_quantize[:, :max_len, :]  # B x T x C
-                pos_emb = self.latent_positional_embedding(full_tokens.new(torch.arange(max_len).unsqueeze(0)) % self.shrink_ratio)  # 1 x T x C
+                code_index = torch.arange(max_len).unsqueeze(0).type_as(full_tokens) % self.shrink_ratio
+                pos_emb = self.latent_positional_embedding(code_index)  # 1 x T x C
                 expand_quantize = pos_emb + expand_quantize
                 if self.share_emb:
                     word_predict = F.linear(expand_quantize, self.decoder.embed_tokens.weight)
                 else:
                     word_predict = F.linear(expand_quantize, self.word_predict_out)
-            else:
-                word_predict = None
 
             if self.args.use_deconv:
                 deconv_output = self.text_conv_encoder(quantize.permute(1, 2, 0), lengths, pad_num,
@@ -636,8 +636,6 @@ class VQVAE(FairseqLanguageModel):
                         word_predict = F.linear(quantize, self.decoder.embed_tokens.weight)
                     else:
                         word_predict = F.linear(quantize, self.word_predict_out)
-                else:
-                    word_predict = None
         else:
             quantize = text_conv_out
             diff = text_conv_out.new_zeros(1)
