@@ -42,7 +42,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         self.commit_anneal_steps = args.commitment_cost_anneal_steps
         self.updates = 0
         self.latent_k = args.bottom_latent_k
-        self.word_predict_loss_weight = hasattr(args, 'aug_loss_weight', 0)
+        self.word_predict_loss_weight = getattr(args, 'aug_loss_weight', 0)
 
     @staticmethod
     def add_args(parser):
@@ -106,7 +106,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         }
 
         if word_predict is not None:
-            logging_output['word_loss'] = utils.item(word_predict_loss.data) if reduce else word_predict_loss.data
+            logging_output['word_nll_loss'] = utils.item(word_predict_loss.data) if reduce else word_predict_loss.data
 
         if not self.training:
             codes = net_output[4]['bottom_codes']  # B x T
@@ -127,7 +127,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         return loss, nll_loss
 
     def compute_cross_entropy(self, logits, sample, reduce=True):
-        lprobs = utils.log_softmax(logits, dim=-1, onnx_trace=self.onnx_trace)
+        lprobs = utils.log_softmax(logits, dim=-1, onnx_trace=False)
         lprobs = lprobs.view(-1, lprobs.size(-1))
         target = sample['target'].view(-1)
         loss = F.nll_loss(
@@ -136,7 +136,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             ignore_index=self.padding_idx,
             reduction='sum' if reduce else 'none',
         )
-        return loss, loss
+        return loss
 
     @staticmethod
     def aggregate_logging_outputs(logging_outputs):
@@ -155,9 +155,9 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             'sample_size': sample_size,
         }
 
-        if 'word_loss' in logging_outputs[0]:
-            results['word_nll_loss'] = sum(log.get('word_loss', 0) for log in logging_outputs) / ntokens / math.log(2) if ntokens > 0 else 0.,
-            
+        if 'word_nll_loss' in logging_outputs[0]:
+            results['word_nll_loss'] = sum(log.get('word_loss', 0) for log in logging_outputs) / ntokens / math.log(2) if ntokens > 0 else 0.
+
         if 'unique_codes' in logging_outputs[0]:
             codes = sum(log.get('unique_codes', 0) for log in logging_outputs) / len(logging_outputs)
             results['unique_codes'] = codes
