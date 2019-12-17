@@ -80,6 +80,8 @@ def main(args, override_args=None):
             prefix = ".sample"
         else:
             prefix = ".bs"
+        if args.prefix_num > 0:
+            prefix = prefix + ".prefix_{}".format(args.prefix_num)
         fopt = io.open(os.path.join(args.results_path, args.valid_subset + prefix + ".reconstruction"), "w", encoding='utf-8')
         # Generate and compute BLEU score
         if args.sacrebleu:

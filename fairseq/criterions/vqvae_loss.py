@@ -9,6 +9,7 @@ from fairseq import utils
 
 from . import FairseqCriterion, register_criterion
 import torch
+import torch.nn.functional as F
 
 def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=True):
     if target.dim() == lprobs.dim() - 1:
@@ -41,6 +42,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         self.commit_anneal_steps = args.commitment_cost_anneal_steps
         self.updates = 0
         self.latent_k = args.bottom_latent_k
+        self.word_predict_loss_weight = hasattr(args, 'aug_loss_weight', 0)
 
     @staticmethod
     def add_args(parser):
@@ -75,7 +77,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         shifted_src_tokens, lengths, target_tokens = sample['net_input']['src_tokens'], \
                                                      sample['net_input']['src_lengths'], sample['target']
         net_output = model(shifted_src_tokens, lengths, target_tokens, self.updates)
-        loss, nll_loss = self.compute_loss(model, net_output, sample, reduce=reduce) # loss is the sum loss over tokens
+        loss, nll_loss = self.compute_loss(model, net_output, sample, reduce=reduce)  # loss is the sum loss over tokens
         commit_weight = self.get_commitment_weight()
 
         commitment_loss = commit_weight * net_output[1]  # this is the mean loss over latent dimensions
@@ -83,6 +85,12 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
 
         commitment_loss = commitment_loss * sample_size
         loss = loss + commitment_loss
+
+        word_predict = net_output[5]
+        if word_predict is not None:
+            word_predict_loss = self.compute_cross_entropy(word_predict, sample, reduce=reduce)  # loss is the sum loss over tokens
+            loss += self.word_predict_loss_weight * word_predict_loss
+
         # nll_loss is sum over all the tokens/sentences
         true_nll_loss = nll_loss + math.log(self.latent_k) * net_output[3]  # net_output[3] is the actual number of codes
 
@@ -96,8 +104,12 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             'nsentences': sample['target'].size(0),
             'sample_size': sample_size,
         }
+
+        if word_predict is not None:
+            logging_output['word_loss'] = utils.item(word_predict_loss.data) if reduce else word_predict_loss.data
+
         if not self.training:
-            codes = net_output[-1]['bottom_codes']  # B x T
+            codes = net_output[4]['bottom_codes']  # B x T
             # logging_output['unique_codes'] = torch.unique(codes)
             logging_output['unique_codes'] = len(torch.unique(codes))
         logging_output.update(quantize_stats)
@@ -113,6 +125,18 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             lprobs, target, self.eps, ignore_index=self.padding_idx, reduce=reduce,
         )
         return loss, nll_loss
+
+    def compute_cross_entropy(self, logits, sample, reduce=True):
+        lprobs = utils.log_softmax(logits, dim=-1, onnx_trace=self.onnx_trace)
+        lprobs = lprobs.view(-1, lprobs.size(-1))
+        target = sample['target'].view(-1)
+        loss = F.nll_loss(
+            lprobs,
+            target,
+            ignore_index=self.padding_idx,
+            reduction='sum' if reduce else 'none',
+        )
+        return loss, loss
 
     @staticmethod
     def aggregate_logging_outputs(logging_outputs):
@@ -131,6 +155,9 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             'sample_size': sample_size,
         }
 
+        if 'word_loss' in logging_outputs[0]:
+            results['word_nll_loss'] = sum(log.get('word_loss', 0) for log in logging_outputs) / ntokens / math.log(2) if ntokens > 0 else 0.,
+            
         if 'unique_codes' in logging_outputs[0]:
             codes = sum(log.get('unique_codes', 0) for log in logging_outputs) / len(logging_outputs)
             results['unique_codes'] = codes

@@ -195,7 +195,18 @@ class VQVAE(FairseqLanguageModel):
         if args.use_deconv:
             self.aug_input = 'add'
         else:
-            self.aug_input = 'none'
+            self.aug_input = 'none'  # prepend as prefix with mask?
+
+        self.aug_loss = getattr(args, 'aug_loss', None)
+        if self.aug_loss is not None:
+            self.share_emb = getattr(args, 'share_aug_softmax_with_emb', 0)
+            if self.aug_loss == 'code_bow':
+                self.latent_positional_embedding = PositionalEmbedding(
+                    self.shrink_ratio, self.bottom_quantizer.dim, self.shrink_ratio+1,
+                    learned=args.decoder_learned_pos,)
+            if not self.share_emb:
+                self.word_predict_out = nn.Parameter(torch.Tensor(len(self.decoder.dictionary), args.encoder_embed_dim))
+                nn.init.normal_(self.embed_out, mean=0, std=self.output_embed_dim ** -0.5)
 
     @staticmethod
     def add_args(parser):
@@ -337,6 +348,10 @@ class VQVAE(FairseqLanguageModel):
         parser.add_argument('--drop-emb', type=float, default=0.0,
                             help='drop embedding in input embedding of transformer decoder, when use deconv')
         parser.add_argument('--quantize-explore-steps', type=int, default=-1,)
+        # this can learn semantic mapping?
+        parser.add_argument('--aug-loss', default=None, choices=['deconv_predict', 'code_bow'])
+        parser.add_argument('--aug-loss-weight', default=0.2, type=float)
+        parser.add_argument('--share-aug-softmax-with-emb', default=0, type=int)
         # fmt: on
 
     @classmethod
@@ -537,7 +552,7 @@ class VQVAE(FairseqLanguageModel):
             # decoder_tokens = self.mask_words(decoder_tokens, lengths)
         decoder_out = self.forward_decoder(decoder_tokens, encoder_out=quantize_out)
         logits = decoder_out[0]
-        return logits, diff, quantize_stats, mask.sum().type_as(diff), codes
+        return logits, diff, quantize_stats, mask.sum().type_as(diff), codes, quantize_out['word_predict']
 
         # todo: prior model - one decoder, one encoder-decoder
         # todo: hierarchical model
@@ -596,10 +611,33 @@ class VQVAE(FairseqLanguageModel):
             quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out,
                                                                               mask.transpose(0, 1).contiguous(),
                                                                               updates=update_steps)
+            # assume currently we are using deconv, so the input are padded to be multiple times of the shrink_ratio + 1
+            if self.training and self.aug_loss == 'code_bow':
+                # T' x batch x C -> batch x T x C
+                batch_size, T_prime, D = quantize.size()
+                expand_quantize = quantize.transpose(0, 1).unsqueeze(2).expand(batch_size, T_prime, self.shrink_ratio, D).reshape(batch_size, -1, D)
+                expand_quantize = expand_quantize[:, :max_len, :]  # B x T x C
+                pos_emb = self.latent_positional_embedding(full_tokens.new(torch.arange(max_len).unsqueeze(0)) % self.shrink_ratio)  # 1 x T x C
+                expand_quantize = pos_emb + expand_quantize
+                if self.share_emb:
+                    word_predict = F.linear(expand_quantize, self.decoder.embed_tokens.weight)
+                else:
+                    word_predict = F.linear(expand_quantize, self.word_predict_out)
+            else:
+                word_predict = None
+
             if self.args.use_deconv:
                 deconv_output = self.text_conv_encoder(quantize.permute(1, 2, 0), lengths, pad_num,
                                                        full_tokens.ne(self.pad_index))
                 quantize = deconv_output.transpose(1, 2)[:, :max_len, :]  # B x T x C
+
+                if self.training and self.aug_loss == 'deconv_predict':
+                    if self.share_emb:
+                        word_predict = F.linear(quantize, self.decoder.embed_tokens.weight)
+                    else:
+                        word_predict = F.linear(quantize, self.word_predict_out)
+                else:
+                    word_predict = None
         else:
             quantize = text_conv_out
             diff = text_conv_out.new_zeros(1)
@@ -612,7 +650,8 @@ class VQVAE(FairseqLanguageModel):
         quantize_out = {'encoder_out': quantize,  # masked T X batch x C  or B x T x C when use deconv
                         'encoder_padding_mask': ~mask,  # B x T, this mask sets padding to be True
                         # 'encoder_embedding': text_encoder_out['encoder_embedding']  # B x T x C
-                        'encoder_embedding': None  # B x T x C
+                        'encoder_embedding': None,  # B x T x C
+                        'word_predict': word_predict
                         }
 
         if self.global_quantizer is not None:
