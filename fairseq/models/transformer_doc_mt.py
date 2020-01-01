@@ -435,7 +435,7 @@ def Linear(in_features, out_features, bias=True):
     return m
 
 
-@register_model_architecture('transformer_doc_mt', 'transformer')
+@register_model_architecture('transformer_doc_mt', 'transformer_doc_mt')
 def base_architecture(args):
     args.encoder_embed_path = getattr(args, 'encoder_embed_path', None)
     args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 512)
@@ -469,7 +469,7 @@ def base_architecture(args):
     args.decoder_input_dim = getattr(args, 'decoder_input_dim', args.decoder_embed_dim)
 
 
-@register_model_architecture('transformer_doc_mt', 'transformer_iwslt_de_en')
+@register_model_architecture('transformer_doc_mt', 'transformer_doc_mt_iwslt_de_en')
 def transformer_iwslt_de_en(args):
     args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 512)
     args.encoder_ffn_embed_dim = getattr(args, 'encoder_ffn_embed_dim', 1024)
@@ -482,13 +482,13 @@ def transformer_iwslt_de_en(args):
     base_architecture(args)
 
 
-@register_model_architecture('transformer', 'transformer_wmt_en_de')
+@register_model_architecture('transformer', 'transformer_doc_mt_wmt_en_de')
 def transformer_wmt_en_de(args):
     base_architecture(args)
 
 
 # parameters used in the "Attention Is All You Need" paper (Vaswani et al., 2017)
-@register_model_architecture('transformer_doc_mt', 'transformer_vaswani_wmt_en_de_big')
+@register_model_architecture('transformer_doc_mt', 'transformer_doc_mt_vaswani_wmt_en_de_big')
 def transformer_vaswani_wmt_en_de_big(args):
     args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 1024)
     args.encoder_ffn_embed_dim = getattr(args, 'encoder_ffn_embed_dim', 4096)
@@ -501,20 +501,20 @@ def transformer_vaswani_wmt_en_de_big(args):
     base_architecture(args)
 
 
-@register_model_architecture('transformer_doc_mt', 'transformer_vaswani_wmt_en_fr_big')
+@register_model_architecture('transformer_doc_mt', 'transformer_doc_mt_vaswani_wmt_en_fr_big')
 def transformer_vaswani_wmt_en_fr_big(args):
     args.dropout = getattr(args, 'dropout', 0.1)
     transformer_vaswani_wmt_en_de_big(args)
 
 
-@register_model_architecture('transformer_doc_mt', 'transformer_wmt_en_de_big')
+@register_model_architecture('transformer_doc_mt', 'transformer_doc_mt_wmt_en_de_big')
 def transformer_wmt_en_de_big(args):
     args.attention_dropout = getattr(args, 'attention_dropout', 0.1)
     transformer_vaswani_wmt_en_de_big(args)
 
 
 # default parameters used in tensor2tensor implementation
-@register_model_architecture('transformer_doc_mt', 'transformer_wmt_en_de_big_t2t')
+@register_model_architecture('transformer_doc_mt', 'transformer_doc_mt_wmt_en_de_big_t2t')
 def transformer_wmt_en_de_big_t2t(args):
     args.encoder_normalize_before = getattr(args, 'encoder_normalize_before', True)
     args.decoder_normalize_before = getattr(args, 'decoder_normalize_before', True)
