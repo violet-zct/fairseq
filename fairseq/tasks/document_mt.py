@@ -267,7 +267,7 @@ class DocumentTranslationTask(FairseqTask):
                 ctx_path, self.context_dict, self.args.dataset_impl, combine=False)  # in fact, the binary datasets doesn't need the dict
             if ctx_dataset is None:
                 raise FileNotFoundError(
-                    "Dataset not found: {}".format(os.path.join(data_path, split + '.doc'))
+                    "Dataset not found: {}".format(os.path.join(data_path, ctx_path))
                 )
 
             dataset = TokenBlockDataset(

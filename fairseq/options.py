@@ -263,6 +263,7 @@ def add_preprocess_args(parser):
                        help="Pad dictionary size to be multiple of N")
     group.add_argument("--workers", metavar="N", default=1, type=int,
                        help="number of parallel workers")
+    group.add_argument("--output_prefix", deafult=None, type=str)
     # fmt: on
     return parser
 
