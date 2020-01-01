@@ -14,6 +14,7 @@ from .backtranslation_dataset import BacktranslationDataset
 from .colorize_dataset import ColorizeDataset
 from .concat_dataset import ConcatDataset
 from .concat_sentences_dataset import ConcatSentencesDataset
+from .context_language_pair import ContextLanguagePairDataset
 from .id_dataset import IdDataset
 from .indexed_dataset import IndexedCachedDataset, IndexedDataset, IndexedRawTextDataset, MMapIndexedDataset
 from .language_pair_dataset import LanguagePairDataset
@@ -31,6 +32,7 @@ from .pad_dataset import LeftPadDataset, PadDataset, RightPadDataset
 from .prepend_dataset import PrependDataset
 from .prepend_token_dataset import PrependTokenDataset
 from .raw_label_dataset import RawLabelDataset
+from .reference_dataset import ReferenceDataset
 from .replace_dataset import ReplaceDataset
 from .resampling_dataset import ResamplingDataset
 from .round_robin_zip_datasets import RoundRobinZipDatasets
@@ -42,7 +44,6 @@ from .token_block_dataset import TokenBlockDataset
 from .transform_eos_dataset import TransformEosDataset
 from .transform_eos_lang_pair_dataset import TransformEosLangPairDataset
 from .truncate_dataset import TruncateDataset
-from .resampling_dataset import ResamplingDataset
 
 from .iterators import (
     CountingIterator,
@@ -57,6 +58,7 @@ __all__ = [
     'ColorizeDataset',
     'ConcatDataset',
     'ConcatSentencesDataset',
+    'ContextLanguagePairDataset',
     'CountingIterator',
     'Dictionary',
     'EpochBatchIterator',
@@ -85,6 +87,7 @@ __all__ = [
     'ReplaceDataset',
     'FileAudioDataset',
     'RawLabelDataset',
+    'ReferenceDataset',
     'ResamplingDataset'
     'RightPadDataset',
     'RoundRobinZipDatasets',

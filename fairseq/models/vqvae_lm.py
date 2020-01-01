@@ -345,8 +345,6 @@ class VQVAE(FairseqLanguageModel):
 
         parser.add_argument('--use-deconv', type=int, default=0,
                             help='apply deconvolution to latent vectors')
-        parser.add_argument('--drop-emb', type=float, default=0.0,
-                            help='drop embedding in input embedding of transformer decoder, when use deconv')
         parser.add_argument('--quantize-explore-steps', type=int, default=-1,)
         # this can learn semantic mapping?
         parser.add_argument('--aug-loss', default=None, choices=['deconv_predict', 'code_bow'])
@@ -557,7 +555,7 @@ class VQVAE(FairseqLanguageModel):
         # todo: prior model - one decoder, one encoder-decoder
         # todo: hierarchical model
 
-    def forward_encoder(self, full_tokens, lengths, update_steps=-1):
+    def forward_encoder(self, full_tokens, lengths, update_steps=-1, extrac_code_only=False):
         """
                 output of text encoder
                 {
@@ -626,7 +624,7 @@ class VQVAE(FairseqLanguageModel):
                 else:
                     word_predict = F.linear(expand_quantize, self.word_predict_out)
 
-            if self.args.use_deconv:
+            if self.args.use_deconv and not extrac_code_only:
                 deconv_output = self.text_conv_encoder(quantize.permute(1, 2, 0), lengths, pad_num,
                                                        full_tokens.ne(self.pad_index))
                 quantize = deconv_output.transpose(1, 2)[:, :max_len, :]  # B x T x C
@@ -717,7 +715,7 @@ class VQVAE(FairseqLanguageModel):
                 encoder_out['encoder_states'][idx] = state.index_select(1, new_order)
         return encoder_out
 
-    def quantization(self, codes, code_mask, global_codes=None):
+    def quantization(self, codes, code_mask, global_codes=None, extract_codes_only=False):
         # codes: batch x T; code_mask: batch x T; mask here sets pad to be True
         # global_codes: batch
         quantize = self.bottom_quantizer.embed_code(codes)  # batch x T x dim
@@ -729,7 +727,7 @@ class VQVAE(FairseqLanguageModel):
             quantize = torch.cat([global_quantize, quantize], dim=0)
             code_mask = torch.cat([dummy_mask.transpose(0, 1), code_mask], dim=1)
 
-        if self.args.use_deconv:
+        if self.args.use_deconv and not extract_codes_only:
             valid = ~code_mask
             lengths = (torch.sum(valid, dim=1).long() - 1) * self.shrink_ratio + 1
             max_length = torch.max(lengths).item()

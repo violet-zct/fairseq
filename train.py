@@ -11,6 +11,7 @@ import collections
 import math
 import random
 
+import os, io
 import numpy as np
 import torch
 
@@ -65,6 +66,12 @@ def main(args, init_distributed=False):
         args.max_sentences,
     ))
 
+    # Build generator if evaluate with BLEU score
+    if args.best_checkpoint_metric == 'bleu':
+        generator = task.build_generator(args)
+    else:
+        generator = None
+
     # Load the latest checkpoint if one is available and restore the
     # corresponding train iterator
     extra_state, epoch_itr = checkpoint_utils.load_checkpoint(args, trainer)
@@ -78,10 +85,16 @@ def main(args, init_distributed=False):
     valid_subsets = args.valid_subset.split(',')
     while lr > args.min_lr and epoch_itr.epoch < max_epoch and trainer.get_num_updates() < max_update:
         # train for one epoch
-        train(args, trainer, task, epoch_itr)
+        train(args, trainer, task, epoch_itr, generator)
 
         if not args.disable_validation and epoch_itr.epoch % args.validate_interval == 0:
             valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets)
+            if args.best_checkpoint_metric == 'bleu':
+                valid_bleu = multi_gpu_bleu(args, trainer, task, generator, trainer._model, epoch_itr, valid_subsets,
+                                              pprefix="valid", valid_bleu=-1, log=False)
+                test_bleu = multi_gpu_bleu(args, trainer, task, generator, trainer._model, epoch_itr, ['test'],
+                                           pprefix="test", valid_bleu=valid_bleu, log=True)
+                valid_losses = [valid_bleu]
         else:
             valid_losses = [None]
 
@@ -99,7 +112,7 @@ def main(args, init_distributed=False):
     print('| done training in {:.1f} seconds'.format(train_meter.sum))
 
 
-def train(args, trainer, task, epoch_itr):
+def train(args, trainer, task, epoch_itr, generator=None):
     """Train the model for one epoch."""
     # Update parameters every N batches
     update_freq = args.update_freq[epoch_itr.epoch - 1] \
@@ -150,6 +163,13 @@ def train(args, trainer, task, epoch_itr):
             and num_updates > 0
         ):
             valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets)
+            if args.best_checkpoint_metric == 'bleu':
+                valid_bleu = multi_gpu_bleu(args, trainer, task, generator, trainer._model, epoch_itr, valid_subsets,
+                                              pprefix="valid", valid_bleu=-1, log=False)
+                test_bleu = multi_gpu_bleu(args, trainer, task, generator, trainer._model, epoch_itr, ['test'],
+                                           pprefix="test", valid_bleu=valid_bleu, log=True)
+                valid_losses = [valid_bleu]
+
             checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_losses[0])
 
         if num_updates >= max_update:
@@ -291,6 +311,128 @@ def get_valid_stats(trainer, args, extra_meters=None):
             current_metric,
         )
     return stats
+
+
+def log_test(bleu, valid_bleu, trainer, progress):
+    stats = collections.OrderedDict()
+    if (not hasattr(checkpoint_utils.save_checkpoint, 'prev_best')) or (
+            hasattr(checkpoint_utils.save_checkpoint, 'prev_best') and valid_bleu > checkpoint_utils.save_checkpoint.prev_best):
+        trainer.meters['best_test_bleu_at_best_valid'] = bleu
+        stats['best_valid_bleu'] = valid_bleu
+    else:
+        stats['best_valid_bleu'] = checkpoint_utils.save_checkpoint.prev_best
+
+    key = "best_test_bleu"
+    if bleu > trainer.meters[key] or key not in trainer.meters:
+        trainer.meters[key] = bleu
+
+    stats['valid_bleu'] = valid_bleu
+    stats['test_bleu'] = bleu
+    stats[key] = trainer.get_meter('best_test_bleu')
+    stats['best_test_bleu_at_best_valid'] = trainer.get_meter("best_test_bleu_at_best_valid")
+    progress.print(stats, tag='test', step=trainer.get_num_updates())
+
+
+def multi_gpu_bleu(args, trainer, task, generator, model, epoch_itr, subsets, pprefix="valid", valid_bleu=None, log=False):
+    def calc_bleu(fref, fmt, result_path):
+        current_path = os.path.dirname(os.path.realpath(__file__))
+        script = os.path.join(current_path, 'scripts/multi-bleu.perl')
+        temp = os.path.join(result_path, 'tmp')
+        os.system("perl %s %s < %s > %s" % (script, fref, fmt, temp))
+        bleu = open(temp, 'r').read().strip()
+        bleu = bleu.split(",")[0].split("=")
+        if len(bleu) < 2:
+            return 0.0
+        bleu = float(bleu[1].strip())
+        return bleu
+
+    epoch = epoch_itr.epoch
+    updates = trainer.get_num_updates()
+    ftran_filename = os.path.join(args.eval_dir, '{}_{}_{}.translation'.format(pprefix, epoch, updates))
+    fgold_filename = os.path.join(args.eval_dir, '{}_{}_{}.gold'.format(pprefix, epoch, updates))
+
+    def merge(prefix, total_ranks):
+        filelists = []
+        for i in range(total_ranks):
+            filelists.append(os.path.join(args.eval_dir, '{}_{}.translation'.format(prefix, i)))
+            filelists.append(os.path.join(args.eval_dir, '{}_{}.gold'.format(prefix, i)))
+
+        new_ftran_filename = os.path.join(args.eval_dir, '{}_{}.translation'.format(epoch, updates))
+        new_fgold_filename = os.path.join(args.eval_dir, '{}_{}.gold'.format(epoch, updates))
+
+        with io.open(new_ftran_filename, "w", encoding="utf-8") as ft, io.open(new_fgold_filename, "w", encoding="utf-8") as fg:
+            for i in range(total_ranks):
+                with io.open(os.path.join(args.eval_dir, '{}_{}.translation'.format(prefix, i)), "r", encoding="utf-8") as fti, \
+                    io.open(os.path.join(args.eval_dir, '{}_{}.gold'.format(prefix, i)), "r",
+                            encoding="utf-8") as fgi:
+                    for lt, lg in zip(fti, fgi):
+                        ft.write(lt.strip() + "\n")
+                        fg.write(lg.strip() + "\n")
+
+        for path in filelists:
+            os.remove(path)
+        return new_ftran_filename, new_fgold_filename
+
+    def write_to_file(ftran, fgold, trans, golds):
+        for t, g in zip(trans, golds):
+            ftran.write(t.strip() + "\n")
+            fgold.write(g.strip() + "\n")
+
+    if args.distributed_world_size > 1:
+        ftran_filename = os.path.join(args.eval_dir, '{}_{}_{}_{}.translation'.format(pprefix, epoch, updates, args.distributed_rank))
+        fgold_filename = os.path.join(args.eval_dir, '{}_{}_{}_{}.gold'.format(pprefix, epoch, updates, args.distributed_rank))
+
+    for subset in subsets:
+        ftran = io.open(ftran_filename, "w", encoding="utf-8")
+        fgold = io.open(fgold_filename, "w", encoding="utf-8")
+        itr = task.get_batch_iterator(
+            dataset=task.dataset(subset),
+            max_tokens=args.max_tokens,
+            max_sentences=args.max_sentences,
+            max_positions=utils.resolve_max_positions(
+                task.max_positions(),
+                trainer.get_model().max_positions(),
+            ),
+            ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
+            required_batch_size_multiple=args.required_batch_size_multiple,
+            seed=args.seed,
+            num_shards=args.distributed_world_size,
+            shard_id=args.distributed_rank,
+        ).next_epoch_itr(fix_batches_to_gpus=True, shuffle=False)
+
+        progress = itr
+        if distributed_utils.is_master(args):
+            progress = progress_bar.build_progress_bar(
+                args, itr, epoch_itr.epoch,
+                prefix=f'test on \'{subset}\' subset',
+                no_progress_bar='simple'
+            )
+
+        for sample in progress:
+            if 'net_input' not in sample:
+                continue
+            hypos = task.inference_step(generator, [model], sample, prefix_tokens=None)
+            hypo_strings = [task.tgt_dict.string(hypo['tokens'].int().cpu(), args.remove_bpe) for hypo in hypos[:1]]
+            tgt_strings = task.tgt_dict.string(sample['target'].int().cpu(), args.remove_bpe, escape_unk=True)
+            write_to_file(ftran, fgold, hypo_strings, tgt_strings.strip().split('\n'))
+
+        ftran.close()
+        fgold.close()
+
+        completed = True
+        if args.distributed_world_size > 1:
+            completed = distributed_utils.all_gather_list(completed)
+
+        if distributed_utils.is_master(args):
+            prefix = "{}_{}_{}".format(pprefix, epoch, updates)
+            ftran_filename, fgold_filename = merge(prefix, args.distributed_world_size)
+            bleu = calc_bleu(ftran_filename, fgold_filename, args.eval_dir)
+            if log:
+                log_test(bleu, valid_bleu, trainer, progress)
+        else:
+            bleu = None
+
+    return bleu
 
 
 def distributed_main(i, args, start_rank=0):
