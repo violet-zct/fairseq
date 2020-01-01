@@ -242,9 +242,9 @@ def main(args):
         if args.testpref and os.path.exists(args.testpref + "." + args.align_suffix):
             make_binary_alignment_dataset(args.testpref + "." + args.align_suffix, "test.align", num_workers=args.workers)
 
-    make_all(args.source_lang, src_dict)
+    make_all(args.source_lang, src_dict, args.output_prefix)
     if target:
-        make_all(args.target_lang, tgt_dict)
+        make_all(args.target_lang, tgt_dict, args.output_prefix)
     if args.align_suffix:
         make_all_alignments()
 
