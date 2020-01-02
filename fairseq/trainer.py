@@ -578,7 +578,7 @@ class Trainer(object):
         device = sample['id'].device
         if 'doc' in process:
             doc_input = sample['net_input']['context'].cuda()
-            doc_lengths = doc_input.neq(self.task.context_dict.pad()).sum(1).cuda()
+            doc_lengths = doc_input.ne(self.task.context_dict.pad()).sum(1).cuda()
             code_mask, _, quantize_out, _, codes = self.task.context_model.forward_encoder(doc_input,
                                                                                  doc_lengths,
                                                                                  extrac_code_only=True)

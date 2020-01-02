@@ -64,7 +64,7 @@ def collate(
         elif input_form == 'cat' and context_form == 'codes':
             # source = [pesudo codes; <bos>; sent], context = codes
             context = merge_ctx(-1)
-            code_lengths = context.neq(-1).sum(1)
+            code_lengths = context.ne(-1).sum(1)
             context[context.eq(-1)] = 0
             if quantitize:
                 process_context = 'quantitize_code'
