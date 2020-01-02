@@ -284,16 +284,15 @@ class TransformerEncoderWithContext(TransformerEncoder):
         sent_mask = src_mask.type_as(context).unsqueeze(-1)
         context_mask = (~src_mask).type_as(context).unsqueeze(-1)
 
-        sent_pos_input = src_tokens.masked_filled(src_mask, self.padding_idx)
+        sent_pos_input = src_tokens.masked_fill_(src_mask, self.padding_idx)
         sent_pos_emb = self.embed_positions(sent_pos_input)
-        ctx_pos_input = src_tokens.masked_filled(~src_mask, self.padding_idx)
+        ctx_pos_input = src_tokens.masked_fill_(~src_mask, self.padding_idx)
         ctx_pos_emb = self.embed_positions(ctx_pos_input)
         pos_emb = ctx_pos_emb * sent_mask + sent_pos_emb * context_mask
 
         sent_embed = self.embed_scale * self.embed_tokens(src_tokens)
         if not (self.context_form == 'doc' and self.context_compress is None):
             # not plain concat of doc and sent, has compressed context
-            embed = self.embed_scale * self.embed_tokens(src_tokens)
             if context.dim() == 2:
                 context = self.embed_scale * self.code_embed_tokens(context)
             diff = sent_embed.size(1) - context.size(1)
@@ -333,7 +332,7 @@ class TransformerEncoderWithContext(TransformerEncoder):
         if self.layer_wise_attention:
             return_all_hiddens = True
 
-        assert src_mask.sum(1) == context_lengths
+        assert (src_mask.sum(1).type_as(context_lengths) == context_lengths).all()
         x, encoder_embedding = self.forward_embedding(src_tokens, src_mask, context)
 
         # B x T x C -> T x B x C

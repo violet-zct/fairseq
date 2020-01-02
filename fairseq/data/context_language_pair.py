@@ -77,7 +77,7 @@ def collate(
             raise ValueError
 
         if code_lengths is not None:
-            context_lengths = code_lengths
+            context_lengths = code_lengths.type_as(id)
             src_tokens = data_utils.collate_tokens(
                 [torch.cat([s[sent_key][0].new(m.item()).fill_(pad_idx), s[sent_key]])
                  for s, m in zip(samples, code_lengths)], pad_idx, left_pad=False, )
