@@ -69,11 +69,10 @@ def load_model(args, path):
     # model = models[0]
 
     # Move models to GPU
-    for model in models:
-        if use_fp16:
-            model.half()
-        if use_cuda:
-            model.cuda()
+    if use_fp16:
+        model.half()
+    if use_cuda:
+        model.cuda()
 
     return model, task, model_args
 
