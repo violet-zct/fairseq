@@ -281,13 +281,14 @@ class TransformerEncoderWithContext(TransformerEncoder):
     def forward_embedding(self, src_tokens, src_mask, context):
         # src_mask set all context tokens to be True
         # embed tokens and positions
-        sent_mask = src_mask.type_as(context).unsqueeze(-1)
-        context_mask = (~src_mask).type_as(context).unsqueeze(-1)
 
         sent_pos_input = src_tokens.masked_fill_(src_mask, self.padding_idx)
         sent_pos_emb = self.embed_positions(sent_pos_input)
         ctx_pos_input = src_tokens.masked_fill_(~src_mask, self.padding_idx)
         ctx_pos_emb = self.embed_positions(ctx_pos_input)
+
+        sent_mask = src_mask.type_as(ctx_pos_emb).unsqueeze(-1)
+        context_mask = (~src_mask).type_as(ctx_pos_emb).unsqueeze(-1)
         pos_emb = ctx_pos_emb * sent_mask + sent_pos_emb * context_mask
 
         sent_embed = self.embed_scale * self.embed_tokens(src_tokens)
