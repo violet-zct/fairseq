@@ -264,7 +264,7 @@ class DocumentTranslationTask(FairseqTask):
             ctx_dataset = ReferenceDataset(ctx_dataset, index_list)
         elif self.args.context_form == 'doc':
             ctx_dataset = data_utils.load_indexed_dataset(
-                ctx_path, self.context_dict, self.args.dataset_impl, combine=False)  # in fact, the binary datasets doesn't need the dict
+                ctx_path, self.ctx_dict, self.args.dataset_impl, combine=False)  # in fact, the binary datasets doesn't need the dict
             if ctx_dataset is None:
                 raise FileNotFoundError(
                     "Dataset not found: {}".format(os.path.join(data_path, ctx_path))
@@ -298,7 +298,7 @@ class DocumentTranslationTask(FairseqTask):
         self.datasets[split] = ContextLanguagePairDataset(ctx_dataset, langpair_dataset, input_form=self.args.input_form,
                                                           context_form=self.args.context_form,
                                                           context_compress=self.args.context_compress,
-                                                          context_model=self.context_model, context_dict=self.context_dict,
+                                                          context_model=self.ctx_model, context_dict=self.ctx_dict,
                                                           encode_code=self.args.encode_code)
 
     def build_dataset_for_inference(self, src_tokens, src_lengths):
