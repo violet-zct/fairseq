@@ -56,9 +56,8 @@ def load_model(args, path):
 
     # build model for ensemble
     model = task.build_model(model_args)
-    model = models.DistributedFairseqModel(model_args, model)
-
     model.load_state_dict(state['model'], strict=True)
+    model = models.DistributedFairseqModel(model_args, model)
 
     for param in model.parameters():
         param.requires_grad = False
