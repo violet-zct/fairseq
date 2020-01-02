@@ -19,4 +19,4 @@ class ReferenceDataset(FairseqDataset):
         return len(self.index_dataset)
 
     def size(self, index):
-        return self.dataset.size(index)
+        return self.dataset.size(self.index_dataset[index])
