@@ -243,7 +243,7 @@ class TransformerEncoderWithContext(TransformerEncoder):
     """
 
     def __init__(self, args, dictionary, embed_tokens, code_embed_tokens=None):
-        super().__init__(dictionary)
+        super().__init__(args, dictionary, embed_tokens)
         self.register_buffer('version', torch.Tensor([3]))
 
         self.dropout = args.dropout
@@ -364,74 +364,11 @@ class TransformerEncoderWithContext(TransformerEncoder):
             'encoder_states': encoder_states,  # List[T x B x C]
         }
 
-    def reorder_encoder_out(self, encoder_out, new_order):
-        """
-        Reorder encoder output according to *new_order*.
-
-        Args:
-            encoder_out: output from the ``forward()`` method
-            new_order (LongTensor): desired order
-
-        Returns:
-            *encoder_out* rearranged according to *new_order*
-        """
-        if encoder_out['encoder_out'] is not None:
-            encoder_out['encoder_out'] = \
-                encoder_out['encoder_out'].index_select(1, new_order)
-        if encoder_out['encoder_padding_mask'] is not None:
-            encoder_out['encoder_padding_mask'] = \
-                encoder_out['encoder_padding_mask'].index_select(0, new_order)
-        if encoder_out.get('encoder_states', None) is not None:
-            for idx, state in enumerate(encoder_out['encoder_states']):
-                encoder_out['encoder_states'][idx] = state.index_select(1, new_order)
-        return encoder_out
-
-    def max_positions(self):
-        """Maximum input length supported by the encoder."""
-        if self.embed_positions is None:
-            return self.max_source_positions
-        return min(self.max_source_positions, self.embed_positions.max_positions())
-
-    def buffered_future_mask(self, tensor):
-        dim = tensor.size(0)
-        if not hasattr(self, '_future_mask') or self._future_mask is None or self._future_mask.device != tensor.device:
-            self._future_mask = torch.triu(utils.fill_with_neg_inf(tensor.new(dim, dim)), 1)
-            if self._future_mask.size(0) < dim:
-                self._future_mask = torch.triu(utils.fill_with_neg_inf(self._future_mask.resize_(dim, dim)), 1)
-        return self._future_mask[:dim, :dim]
-
-    def upgrade_state_dict_named(self, state_dict, name):
-        """Upgrade a (possibly old) state dict for new versions of fairseq."""
-        if isinstance(self.embed_positions, SinusoidalPositionalEmbedding):
-            weights_key = '{}.embed_positions.weights'.format(name)
-            if weights_key in state_dict:
-                del state_dict[weights_key]
-            state_dict['{}.embed_positions._float_tensor'.format(name)] = torch.FloatTensor(1)
-        for i in range(len(self.layers)):
-            # update layer norms
-            self.layers[i].upgrade_state_dict_named(state_dict, "{}.layers.{}".format(name, i))
-
-        version_key = '{}.version'.format(name)
-        if utils.item(state_dict.get(version_key, torch.Tensor([1]))[0]) < 2:
-            # earlier checkpoints did not normalize after the stack of layers
-            self.layer_norm = None
-            self.normalize = False
-            state_dict[version_key] = torch.Tensor([1])
-        return state_dict
-
 
 def Embedding(num_embeddings, embedding_dim, padding_idx):
     m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
     nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
     nn.init.constant_(m.weight[padding_idx], 0)
-    return m
-
-
-def Linear(in_features, out_features, bias=True):
-    m = nn.Linear(in_features, out_features, bias)
-    nn.init.xavier_uniform_(m.weight)
-    if bias:
-        nn.init.constant_(m.bias, 0.)
     return m
 
 
