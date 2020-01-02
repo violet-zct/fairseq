@@ -482,7 +482,7 @@ def transformer_iwslt_de_en(args):
     base_architecture(args)
 
 
-@register_model_architecture('transformer', 'transformer_doc_mt_wmt_en_de')
+@register_model_architecture('transformer_doc_mt', 'transformer_doc_mt_wmt_en_de')
 def transformer_wmt_en_de(args):
     base_architecture(args)
 

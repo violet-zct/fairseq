@@ -411,6 +411,7 @@ def multi_gpu_bleu(args, trainer, task, generator, model, epoch_itr, subsets, pp
         for sample in progress:
             if 'net_input' not in sample:
                 continue
+            sample = trainer._prepare_sample(sample)
             hypos = task.inference_step(generator, [model], sample, prefix_tokens=None)
             hypo_strings = [task.tgt_dict.string(hypo['tokens'].int().cpu(), args.remove_bpe) for hypo in hypos[:1]]
             tgt_strings = task.tgt_dict.string(sample['target'].int().cpu(), args.remove_bpe, escape_unk=True)

@@ -576,10 +576,12 @@ class Trainer(object):
     def _prepare_sample_with_context(self, sample):
         process = sample['process_context']
         device = sample['id'].device
+        self.task.ctx_model.eval()
         if 'doc' in process:
             doc_input = sample['net_input']['context'].cuda()
             doc_lengths = doc_input.ne(self.task.ctx_dict.pad()).sum(1).cuda()
-            code_mask, _, quantize_out, _, codes = self.task.ctx_model.forward_encoder(doc_input,
+            with torch.no_grad():
+                code_mask, _, quantize_out, _, codes = self.task.ctx_model.forward_encoder(doc_input,
                                                                                  doc_lengths,
                                                                                  extrac_code_only=True)
             if process == 'quantitize_doc':
@@ -589,7 +591,8 @@ class Trainer(object):
                 context[context.eq(-1)] = 0
                 sample['net_input']['context'] = context
         elif process == 'quantitize_code':
-            sample['net_input']['context'] = self.task.ctx_model.quantization(sample['net_input']['context'].cuda(), code_mask=None,
+            with torch.no_grad():
+                sample['net_input']['context'] = self.task.ctx_model.quantization(sample['net_input']['context'].cuda(), code_mask=None,
                                                                      extract_codes_only=True)['encoder_out'].transpose(0, 1).to(device)
         return sample
 

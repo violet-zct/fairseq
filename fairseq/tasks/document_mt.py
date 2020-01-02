@@ -57,11 +57,11 @@ def load_model(args, path):
     # build model for ensemble
     model = task.build_model(model_args)
     model.load_state_dict(state['model'], strict=True)
-    model = models.DistributedFairseqModel(model_args, model)
+    if args.distributed_world_size > 1:
+        model = models.DistributedFairseqModel(model_args, model)
 
     for param in model.parameters():
         param.requires_grad = False
-    model.training = False
 
     # Move models to GPU
     if use_fp16:
