@@ -256,7 +256,7 @@ class DocumentTranslationTask(FairseqTask):
             prepend_bos=(self.args.input_form == 'cat'),
         )
 
-        index_list = [int(x) for x in open(os.path.join(data_path, split + '.doc.id')).readlines()]
+        index_list = [int(x) for x in open(os.path.join(data_path, split + '.' + self.args.source_lang + '.doc.id')).readlines()]
 
         ctx_path = os.path.join(data_path, split + '.' + self.args.context_suffix)
         if self.args.context_form == 'codes':
