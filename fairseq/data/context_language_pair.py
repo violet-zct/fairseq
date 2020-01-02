@@ -51,11 +51,12 @@ def collate(
             doc_input = merge_ctx(ctx_pad_idx)
             doc_lengths = torch.LongTensor([s[ctx_key].numel() for s in samples])
             # mask: B x T'
-            code_mask, _, quantize_out, _, codes = context_model.forward_encoder(doc_input, doc_lengths, extrac_code_only=True)
+            code_mask, _, quantize_out, _, codes = context_model.forward_encoder(doc_input.cuda(), doc_lengths.cuda(),
+                                                                                 extrac_code_only=True)
             if quantitize:
-                context = quantize_out['encoder_out'].transpose(0, 1)  # T' x B x C -> B x T' x C
+                context = quantize_out['encoder_out'].transpose(0, 1).to(id.device)  # T' x B x C -> B x T' x C
             else:
-                context = codes['bottom_codes']  # B x T'
+                context = codes['bottom_codes'].to(id.device)  # B x T'
                 context[context.eq(-1)] = 0
         elif input_form == 'cat' and context_form == 'codes':
             # source = [pesudo codes; <bos>; sent], context = codes
@@ -64,7 +65,8 @@ def collate(
             context[context.eq(-1)] = 0
             if quantitize:
                 # T' x B x C -> B x T' x C
-                context = context_model.quantization(context, code_mask=None, extract_codes_only=True)['encoder_out'].transpose(0, 1)
+                context = context_model.quantization(context.cuda(), code_mask=None,
+                                                     extract_codes_only=True)['encoder_out'].transpose(0, 1).to(id.device)
         elif input_form == 'sep':
             # source = sent, context = doc / codes
             src_tokens = merge('source', left_pad=left_pad_source)
