@@ -137,7 +137,7 @@ class ContextLanguagePairDataset(FairseqDataset):
     def __init__(
         self, ctx_dataset, langpair_dataset,
         input_form='cat', context_form='doc', context_compress=None, context_model=None, context_dict=None,
-        encode_code=False
+        encode_code=False, shuffle=True
     ):
         self.ctx_dataset = ctx_dataset
         self.langpair_dataset = langpair_dataset
@@ -153,6 +153,8 @@ class ContextLanguagePairDataset(FairseqDataset):
         self.context_model = context_model
         self.context_dict = context_dict
         self.encode_code = encode_code
+
+        self.shuffle = shuffle
 
     def __getitem__(self, index):
         tgt_item = self.langpair_dataset.tgt[index] if self.tgt is not None else None
@@ -230,7 +232,7 @@ class ContextLanguagePairDataset(FairseqDataset):
             indices = np.random.permutation(len(self))
         else:
             indices = np.arange(len(self))
-        if self.tgt_sizes is not None:
+        if self.langpair_dataset.tgt_sizes is not None:
             indices = indices[np.argsort(self.langpair_dataset.tgt_sizes[indices], kind='mergesort')]
         return indices[np.argsort(self.langpair_dataset.src_sizes[indices], kind='mergesort')]
 
