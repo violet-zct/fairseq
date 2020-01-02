@@ -139,7 +139,7 @@ class ContextLanguagePairDataset(FairseqDataset):
 
     def __init__(
         self, ctx_dataset, langpair_dataset,
-        input_form='cat', context_form='doc', context_compress=None, context_model=None, context_dict=None,
+        input_form='cat', context_form='doc', context_compress=None, context_dict=None,
         encode_code=False, shuffle=True
     ):
         self.ctx_dataset = ctx_dataset
@@ -153,7 +153,6 @@ class ContextLanguagePairDataset(FairseqDataset):
             context_compress = map(int, context_compress.strip().split(','))
         self.context_compress = context_compress
 
-        self.context_model = context_model
         self.context_dict = context_dict
         self.encode_code = encode_code
 
