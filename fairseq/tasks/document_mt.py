@@ -183,8 +183,12 @@ class DocumentTranslationTask(FairseqTask):
         self.tgt_dict = tgt_dict
 
         self.ctx_dict = ctx_dict
+        # self.ctx_model = ctx_model
+        ctx_model = models.DistributedFairseqModel(args, ctx_model)
+        for param in ctx_model.parameters():
+            param.requires_grad = False
+        ctx_model.training = False
         self.ctx_model = ctx_model
-        self.ctx_model = models.DistributedFairseqModel(args, ctx_model)
 
     @classmethod
     def setup_task(cls, args, **kwargs):
@@ -223,10 +227,6 @@ class DocumentTranslationTask(FairseqTask):
             context_model, context_task, model_args = load_model(args, args.context_model_path)
             context_dict = context_task.dictionary
             args.codebook_size = model_args.bottom_latent_k
-
-            for param in context_model.parameters():
-                param.requires_grad = False
-            context_model.training = False
         else:
             context_dict = src_dict
             context_model = None
