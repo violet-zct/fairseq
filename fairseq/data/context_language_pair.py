@@ -205,7 +205,7 @@ class ContextLanguagePairDataset(FairseqDataset):
         """
 
         return collate(
-            samples, pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(),
+            samples, pad_idx=self.langpair_dataset.src_dict.pad(), eos_idx=self.langpair_dataset.src_dict.eos(),
             ctx_pad_idx=self.context_dict.pad(),
             left_pad_source=False, left_pad_target=False,
             input_feeding=True,
