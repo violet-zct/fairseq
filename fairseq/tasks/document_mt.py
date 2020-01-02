@@ -24,19 +24,50 @@ from fairseq.data import (
 from fairseq import models
 from . import FairseqTask, register_task
 from fairseq import checkpoint_utils
+from torch.serialization import default_restore_location
+from fairseq.checkpoint_utils import _upgrade_state_dict
+
+
+def load_checkpoint_to_cpu(path, arg_overrides=None):
+    """Loads a checkpoint to CPU (with upgrading for backward compatibility)."""
+    state = torch.load(
+        path, map_location=lambda s, l: default_restore_location(s, 'cpu'),
+    )
+    args = state['args']
+    if arg_overrides is not None:
+        for arg_name, arg_val in arg_overrides.items():
+            setattr(args, arg_name, arg_val)
+    state = _upgrade_state_dict(state)
+    return state
 
 
 def load_model(args, path):
+    from fairseq import tasks
+
     use_fp16 = args.fp16
     use_cuda = torch.cuda.is_available() and not args.cpu
 
     # Load ensemble
     print('| loading model(s) from {}'.format(path))
-    models, model_args, task = checkpoint_utils.load_model_ensemble_and_task(
-        [path],
-        arg_overrides=None,
-    )
-    model = models[0]
+    state = load_checkpoint_to_cpu(path, None)
+
+    model_args = state['args']
+    task = tasks.setup_task(args)
+
+    # build model for ensemble
+    model = task.build_model(args)
+    model = models.DistributedFairseqModel(args, model)
+
+    model.load_state_dict(state['model'], strict=True)
+
+    for param in model.parameters():
+        param.requires_grad = False
+    model.training = False
+    # models, model_args, task = checkpoint_utils.load_model_ensemble_and_task(
+    #     [path],
+    #     arg_overrides=None,
+    # )
+    # model = models[0]
 
     # Move models to GPU
     for model in models:
@@ -184,10 +215,10 @@ class DocumentTranslationTask(FairseqTask):
 
         self.ctx_dict = ctx_dict
         # self.ctx_model = ctx_model
-        ctx_model = models.DistributedFairseqModel(args, ctx_model)
-        for param in ctx_model.parameters():
-            param.requires_grad = False
-        ctx_model.training = False
+        # ctx_model = models.DistributedFairseqModel(args, ctx_model)
+        # for param in ctx_model.parameters():
+        #     param.requires_grad = False
+        # ctx_model.training = False
         self.ctx_model = ctx_model
 
     @classmethod
