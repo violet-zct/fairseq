@@ -21,7 +21,7 @@ from fairseq.data import (
     ReferenceDataset,
     ContextLanguagePairDataset
 )
-
+from fairseq import models
 from . import FairseqTask, register_task
 from fairseq import checkpoint_utils
 
@@ -184,6 +184,7 @@ class DocumentTranslationTask(FairseqTask):
 
         self.ctx_dict = ctx_dict
         self.ctx_model = ctx_model
+        self.ctx_model = models.DistributedFairseqModel(args, ctx_model)
 
     @classmethod
     def setup_task(cls, args, **kwargs):
