@@ -157,7 +157,7 @@ class ContextLanguagePairDataset(FairseqDataset):
         self.shuffle = shuffle
 
     def __getitem__(self, index):
-        tgt_item = self.langpair_dataset.tgt[index] if self.tgt is not None else None
+        tgt_item = self.langpair_dataset.tgt[index]
         src_item = self.langpair_dataset.src[index]
 
         ctx_item = self.ctx_dataset[index]
