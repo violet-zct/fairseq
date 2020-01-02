@@ -207,11 +207,6 @@ class DocumentTranslationTask(FairseqTask):
         self.tgt_dict = tgt_dict
 
         self.ctx_dict = ctx_dict
-        # self.ctx_model = ctx_model
-        # ctx_model = models.DistributedFairseqModel(args, ctx_model)
-        # for param in ctx_model.parameters():
-        #     param.requires_grad = False
-        # ctx_model.training = False
         self.ctx_model = ctx_model
 
     @classmethod
