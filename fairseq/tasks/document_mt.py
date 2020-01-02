@@ -52,11 +52,11 @@ def load_model(args, path):
     state = load_checkpoint_to_cpu(path, None)
 
     model_args = state['args']
-    task = tasks.setup_task(args)
+    task = tasks.setup_task(model_args)
 
     # build model for ensemble
-    model = task.build_model(args)
-    model = models.DistributedFairseqModel(args, model)
+    model = task.build_model(model_args)
+    model = models.DistributedFairseqModel(model_args, model)
 
     model.load_state_dict(state['model'], strict=True)
 
