@@ -56,7 +56,8 @@ def collate(
         elif input_form == 'cat' and context_form == 'doc' and context_compress is not None:
             # source = [pesudo compressed doc; <bos>; sent], context = doc
             context = merge_ctx(ctx_pad_idx)
-            code_lengths = compute_compressed_lengths(context_lengths, context_compress)
+            doc_lengths = torch.LongTensor([s[ctx_key].numel() for s in samples])
+            code_lengths = compute_compressed_lengths(doc_lengths, context_compress)
             process_context = 'compress_doc'
             if quantitize:
                 process_context = 'quantitize_doc'
