@@ -573,7 +573,30 @@ class Trainer(object):
         self._num_updates = num_updates
         self.lr_step_update()
 
+    def _prepare_sample_with_context(self, sample):
+        process = sample['process_context']
+        device = sample['id'].device
+        if 'doc' in process:
+            doc_input = sample['context'].cuda()
+            doc_lengths = doc_input.neq(self.task.context_dict.pad()).sum(1).cuda()
+            code_mask, _, quantize_out, _, codes = self.task.context_model.forward_encoder(doc_input,
+                                                                                 doc_lengths,
+                                                                                 extrac_code_only=True)
+            if process == 'quantitize_doc':
+                sample['context'] = quantize_out['encoder_out'].transpose(0, 1).to(device)  # T' x B x C -> B x T' x C
+            elif process == 'compress_doc':
+                context = codes['bottom_codes'].to(device)  # B x T'
+                context[context.eq(-1)] = 0
+                sample['context'] = context
+        elif process == 'quantitize_code':
+            sample['context'] = self.task.context_model.quantization(sample['context'].cuda(), code_mask=None,
+                                                                     extract_codes_only=True)['encoder_out'].transpose(0, 1).to(device)
+        return sample
+
     def _prepare_sample(self, sample):
+        if self.args.task == 'doc_translation':
+            sample = self._prepare_sample_with_context(sample)
+
         if sample is None or len(sample) == 0:
             return None
 

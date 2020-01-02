@@ -12,8 +12,9 @@ from . import data_utils, FairseqDataset
 def collate(
     samples, pad_idx, eos_idx, ctx_pad_idx, left_pad_source=False, left_pad_target=False,
     input_feeding=True, input_form='cat', context_form='doc', context_compress=None,
-    context_model=None, quantitize=False,
+    quantitize=False,
 ):
+    # quantitize means encode the codes with the original code book embeddings
     if len(samples) == 0:
         return {}
 
@@ -28,6 +29,11 @@ def collate(
             [s['context'] for s in samples], pad, left_pad=False,
         )
 
+    def compute_compressed_lengths(lengths, strides):
+        for s in strides:
+            lengths = (lengths - 1) / s + 1
+        return lengths
+
     id = torch.LongTensor([s['id'] for s in samples])
 
     def cat_merge_source():
@@ -37,7 +43,8 @@ def collate(
         context_lengths = None
         src_tokens = None
         src_mask = None
-        code_mask = None
+        code_lengths = None
+        process_context = None
 
         if input_form == 'cat' and context_form == 'doc' and context_compress is None:
             context_lengths = torch.LongTensor([s['context'].numel() for s in samples])
@@ -48,25 +55,18 @@ def collate(
             src_mask = src_mask < context_lengths.unsqueeze(1)
         elif input_form == 'cat' and context_form == 'doc' and context_compress is not None:
             # source = [pesudo compressed doc; <bos>; sent], context = doc
-            doc_input = merge_ctx(ctx_pad_idx)
-            doc_lengths = torch.LongTensor([s[ctx_key].numel() for s in samples])
-            # mask: B x T'
-            code_mask, _, quantize_out, _, codes = context_model.forward_encoder(doc_input.cuda(), doc_lengths.cuda(),
-                                                                                 extrac_code_only=True)
+            context = merge_ctx(ctx_pad_idx)
+            code_lengths = compute_compressed_lengths(context_lengths, context_compress)
+            process_context = 'compress_doc'
             if quantitize:
-                context = quantize_out['encoder_out'].transpose(0, 1).to(id.device)  # T' x B x C -> B x T' x C
-            else:
-                context = codes['bottom_codes'].to(id.device)  # B x T'
-                context[context.eq(-1)] = 0
+                process_context = 'quantitize_doc'
         elif input_form == 'cat' and context_form == 'codes':
             # source = [pesudo codes; <bos>; sent], context = codes
             context = merge_ctx(-1)
-            code_mask = context.neq(-1)
+            code_lengths = context.neq(-1).sum(1)
             context[context.eq(-1)] = 0
             if quantitize:
-                # T' x B x C -> B x T' x C
-                context = context_model.quantization(context.cuda(), code_mask=None,
-                                                     extract_codes_only=True)['encoder_out'].transpose(0, 1).to(id.device)
+                process_context = 'quantitize_code'
         elif input_form == 'sep':
             # source = sent, context = doc / codes
             src_tokens = merge('source', left_pad=left_pad_source)
@@ -75,17 +75,17 @@ def collate(
         else:
             raise ValueError
 
-        if code_mask is not None:
-            context_lengths = code_mask.sum(1)
+        if code_lengths is not None:
+            context_lengths = code_lengths
             src_tokens = data_utils.collate_tokens(
                 [torch.cat([s[sent_key][0].new(m.item()).fill_(pad_idx), s[sent_key]])
-                 for s, m in zip(samples, context_lengths)], pad_idx, left_pad=False, )
+                 for s, m in zip(samples, code_lengths)], pad_idx, left_pad=False, )
             src_mask = torch.arange(src_tokens.size(1), device=src_tokens.device).type_as(src_tokens).expand(
                 len(src_tokens), src_tokens.size(1))
-            src_mask = src_mask < context_lengths.unsqueeze(1)
-        return src_tokens, src_mask, context, context_lengths
+            src_mask = src_mask < code_lengths.unsqueeze(1)
+        return src_tokens, src_mask, context, context_lengths, process_context
 
-    src_tokens, src_mask, context, context_lengths = cat_merge_source()
+    src_tokens, src_mask, context, context_lengths, process_context = cat_merge_source()
     # sort by descending source length
     src_lengths = torch.LongTensor([s.numel() for s in src_tokens])
     src_lengths, sort_order = src_lengths.sort(descending=True)
@@ -124,6 +124,7 @@ def collate(
             'context_lengths': context_lengths
         },
         'target': target,
+        'process_context': process_context
     }
     if prev_output_tokens is not None:
         batch['net_input']['prev_output_tokens'] = prev_output_tokens
@@ -212,7 +213,7 @@ class ContextLanguagePairDataset(FairseqDataset):
             left_pad_source=False, left_pad_target=False,
             input_feeding=True,
             input_form=self.input_form, context_form=self.context_form, context_compress=self.context_compress,
-            context_model=self.context_model, quantitize=self.encode_code
+            quantitize=self.encode_code
         )
 
     def num_tokens(self, index):

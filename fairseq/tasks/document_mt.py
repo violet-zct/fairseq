@@ -62,11 +62,6 @@ def load_model(args, path):
     for param in model.parameters():
         param.requires_grad = False
     model.training = False
-    # models, model_args, task = checkpoint_utils.load_model_ensemble_and_task(
-    #     [path],
-    #     arg_overrides=None,
-    # )
-    # model = models[0]
 
     # Move models to GPU
     if use_fp16:
