@@ -111,10 +111,7 @@ def main(args, override_args=None):
                 dataset=dataset,
                 max_tokens=args.max_tokens,
                 max_sentences=args.max_sentences,
-                max_positions=utils.resolve_max_positions(
-                    task.max_positions(),
-                    model.max_positions(),
-                ),
+                max_positions=1e5,
                 ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
                 required_batch_size_multiple=args.required_batch_size_multiple,
                 seed=args.seed,
@@ -272,3 +269,8 @@ def cli_main():
 
 if __name__ == '__main__':
     cli_main()
+
+#                 max_positions=utils.resolve_max_positions(
+#                     task.max_positions(),
+#                     model.max_positions(),
+#                 ),
