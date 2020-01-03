@@ -594,6 +594,7 @@ class Trainer(object):
             with torch.no_grad():
                 sample['net_input']['context'] = self.task.ctx_model.quantization(sample['net_input']['context'].cuda(), code_mask=None,
                                                                      extract_codes_only=True)['encoder_out'].transpose(0, 1).to(device)
+        torch.cuda.empty_cache()
         return sample
 
     def _prepare_sample(self, sample):
