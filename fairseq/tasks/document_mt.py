@@ -64,8 +64,8 @@ def load_model(args, path):
         param.requires_grad = False
 
     # Move models to GPU
-    if use_fp16:
-        model.half()
+    # if use_fp16:
+    #     model.half()
     if use_cuda:
         model.cuda()
 
