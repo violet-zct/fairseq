@@ -150,8 +150,6 @@ class ContextLanguagePairDataset(FairseqDataset):
 
         self.input_form = input_form
         self.context_form = context_form
-        if context_compress is not None:
-            context_compress = map(int, context_compress.strip().split(','))
         self.context_compress = context_compress
 
         self.context_dict = context_dict

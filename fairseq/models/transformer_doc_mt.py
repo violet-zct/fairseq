@@ -340,7 +340,7 @@ class TransformerEncoderWithContext(TransformerEncoder):
         x = x.transpose(0, 1)
 
         # compute padding mask
-        encoder_padding_mask = src_tokens.eq(self.padding_idx)
+        encoder_padding_mask = src_tokens.masked_fill_(src_mask, self.padding_idx + 1).eq(self.padding_idx)
         if not encoder_padding_mask.any():
             encoder_padding_mask = None
 

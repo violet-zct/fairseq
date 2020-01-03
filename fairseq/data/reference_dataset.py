@@ -1,4 +1,5 @@
 from fairseq.data import FairseqDataset
+import numpy as np
 
 
 class ReferenceDataset(FairseqDataset):
@@ -7,10 +8,19 @@ class ReferenceDataset(FairseqDataset):
 
     def __init__(self,
                  dataset,
-                 index_dataset):
+                 index_dataset,
+                 sizes,
+                 strides=None):
         # the index_data can be a list
         self.dataset = dataset
         self.index_dataset = index_dataset
+
+        if strides is not None:
+            sizes = np.array(sizes)
+            for s in strides:
+                sizes = (sizes - 1) / s + 1
+            sizes = list(sizes)
+        self.sizes = sizes
 
     def __getitem__(self, index):
         return self.dataset[self.index_dataset[index]]
@@ -19,4 +29,4 @@ class ReferenceDataset(FairseqDataset):
         return len(self.index_dataset)
 
     def size(self, index):
-        return self.dataset.size(self.index_dataset[index])
+        return self.sizes[self.index_dataset[index]]

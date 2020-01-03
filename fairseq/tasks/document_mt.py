@@ -262,6 +262,10 @@ class DocumentTranslationTask(FairseqTask):
         assert len(paths) > 0
         data_path = paths[epoch % len(paths)]
 
+        context_compress = None
+        if self.args.context_form == 'doc' and self.args.context_compress is not None:
+            context_compress = map(int, self.args.context_compress.strip().split(','))
+
         # infer langcode
         src, tgt = self.args.source_lang, self.args.target_lang
 
@@ -311,13 +315,13 @@ class DocumentTranslationTask(FairseqTask):
                 targets=None,   # we just need the full context of the source
                 add_bos_token=False,
             )
-            ctx_dataset = ReferenceDataset(ctx_dataset, index_list)
+            ctx_dataset = ReferenceDataset(ctx_dataset, index_list, dataset.sizes, context_compress)
         else:
             raise ValueError
 
         self.datasets[split] = ContextLanguagePairDataset(ctx_dataset, langpair_dataset, input_form=self.args.input_form,
                                                           context_form=self.args.context_form,
-                                                          context_compress=self.args.context_compress,
+                                                          context_compress=context_compress,
                                                           context_dict=self.ctx_dict,
                                                           encode_code=self.args.encode_code)
 
