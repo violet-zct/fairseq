@@ -303,7 +303,7 @@ class DocumentTranslationTask(FairseqTask):
                 break_mode='complete_doc',
                 include_targets=False,
             )
-
+            print("Loaded {} documents/context!".format(len(dataset)))
             # return {'id': index, 'source': source, 'target': target}: target = None
             ctx_dataset = MonolingualDataset(
                 dataset,

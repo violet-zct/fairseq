@@ -18,7 +18,7 @@ class ReferenceDataset(FairseqDataset):
         sizes = np.array(sizes)
         if strides is not None:
             for s in strides:
-                sizes = (sizes - 1) / s + 1
+                sizes = (sizes - 1) // s + 1
         self.sizes = sizes
 
     def __getitem__(self, index):
