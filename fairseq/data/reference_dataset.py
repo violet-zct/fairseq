@@ -15,11 +15,10 @@ class ReferenceDataset(FairseqDataset):
         self.dataset = dataset
         self.index_dataset = index_dataset
 
+        sizes = np.array(sizes)
         if strides is not None:
-            sizes = np.array(sizes)
             for s in strides:
                 sizes = (sizes - 1) / s + 1
-            sizes = list(sizes)
         self.sizes = sizes
 
     def __getitem__(self, index):
