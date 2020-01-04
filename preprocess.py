@@ -223,15 +223,22 @@ def main(args):
             make_binary_dataset(vocab, input_prefix, output_prefix, lang, num_workers)
 
     def make_all(lang, vocab, output_prefix):
+        train_prefix = "train" if output_prefix is None else "train.{}".format(output_prefix)
         if args.trainpref:
-            make_dataset(vocab, args.trainpref, "train.{}".format(output_prefix), lang, num_workers=args.workers)
+            make_dataset(vocab, args.trainpref, train_prefix, lang, num_workers=args.workers)
         if args.validpref:
             for k, validpref in enumerate(args.validpref.split(",")):
-                outprefix = "valid{}.{}".format(k, output_prefix) if k > 0 else "valid.{}".format(output_prefix)
+                if output_prefix is None:
+                    outprefix = "valid"
+                else:
+                    outprefix = "valid{}.{}".format(k, output_prefix) if k > 0 else "valid.{}".format(output_prefix)
                 make_dataset(vocab, validpref, outprefix, lang, num_workers=args.workers)
         if args.testpref:
             for k, testpref in enumerate(args.testpref.split(",")):
-                outprefix = "test{}.{}".format(k, output_prefix) if k > 0 else "test.{}".format(output_prefix)
+                if output_prefix is None:
+                    outprefix = "test"
+                else:
+                    outprefix = "test{}.{}".format(k, output_prefix) if k > 0 else "test.{}".format(output_prefix)
                 make_dataset(vocab, testpref, outprefix, lang, num_workers=args.workers)
 
     def make_all_alignments():
