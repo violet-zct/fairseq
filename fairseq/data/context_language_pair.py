@@ -235,7 +235,7 @@ class ContextLanguagePairDataset(FairseqDataset):
             indices = np.arange(len(self))
         if self.langpair_dataset.tgt_sizes is not None:
             indices = indices[np.argsort(self.langpair_dataset.tgt_sizes[indices], kind='mergesort')]
-        return indices[np.argsort(self.ctx_dataset.sizes[indices], kind='mergesort')]
+        return indices[np.argsort(self.ctx_dataset.size[indices], kind='mergesort')]
 
     @property
     def supports_prefetch(self):

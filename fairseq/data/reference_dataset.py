@@ -13,7 +13,7 @@ class ReferenceDataset(FairseqDataset):
                  strides=None):
         # the index_data can be a list
         self.dataset = dataset
-        self.index_dataset = index_dataset
+        self.index_dataset = np.array(index_dataset)
 
         sizes = np.array(sizes)
         if strides is not None:

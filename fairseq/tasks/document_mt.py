@@ -285,7 +285,7 @@ class DocumentTranslationTask(FairseqTask):
         ctx_path = os.path.join(data_path, split + '.' + self.args.context_suffix)
         if self.args.context_form == 'codes':
             ctx_dataset = RawLabelDataset([torch.IntTensor(map(int, line.strip().split())) for line in open(ctx_path).readlines()])
-            ctx_dataset = ReferenceDataset(ctx_dataset, index_list)
+            ctx_dataset = ReferenceDataset(ctx_dataset, index_list, sizes=ctx_dataset.sizes)
         elif self.args.context_form == 'doc':
             ctx_dataset = data_utils.load_indexed_dataset(
                 ctx_path, self.ctx_dict, self.args.dataset_impl, combine=False)  # in fact, the binary datasets doesn't need the dict
