@@ -267,7 +267,7 @@ class Trainer(object):
             if sample is None:
                 # when sample is None, run forward/backward on a dummy batch
                 # and ignore the resulting gradients
-                sample = self._prepare_sample(self._dummy_batch)
+                sample = self._prepare_sample(self._dummy_batch, dummy=True)
                 ignore_grad = True
             else:
                 ignore_grad = False
@@ -461,7 +461,7 @@ class Trainer(object):
 
             sample = self._prepare_sample(sample)
             if sample is None:
-                sample = self._prepare_sample(self._dummy_batch)
+                sample = self._prepare_sample(self._dummy_batch, dummy=True)
                 ignore_results = True
             else:
                 ignore_results = False
@@ -597,11 +597,11 @@ class Trainer(object):
         torch.cuda.empty_cache()
         return sample
 
-    def _prepare_sample(self, sample):
+    def _prepare_sample(self, sample, dummy=False):
         if sample is None or len(sample) == 0:
             return None
 
-        if self.args.task == 'doc_translation':
+        if self.args.task == 'doc_translation' and not dummy:
             sample = self._prepare_sample_with_context(sample)
 
         if self.cuda:
