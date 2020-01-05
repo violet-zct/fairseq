@@ -391,7 +391,7 @@ def multi_gpu_bleu(args, trainer, task, generator, model, epoch_itr, subsets, pp
         fgold = io.open(fgold_filename, "w", encoding="utf-8")
         itr = task.get_batch_iterator(
             dataset=task.dataset(subset),
-            max_tokens=args.max_tokens,
+            max_tokens=args.max_tokens + 6184,
             max_sentences=args.max_sentences,
             max_positions=utils.resolve_max_positions(
                 task.max_positions(),
