@@ -54,7 +54,7 @@ def main(args, init_distributed=False):
     if args.best_checkpoint_metric == 'bleu':
         for test_sub_split in args.test_subset.split(','):
             task.load_dataset(test_sub_split, combine=False, epoch=0)
-            
+
     # Build model and criterion
     model = task.build_model(args)
     criterion = task.build_criterion(args)
@@ -425,7 +425,7 @@ def multi_gpu_bleu(args, trainer, task, generator, model, epoch_itr, subsets, pp
             hypos = task.inference_step(generator, [model], sample, prefix_tokens=None)
 
             if not ignore_results:
-                hypo_strings = [task.tgt_dict.string(hypo[:1]['tokens'].int().cpu(), args.remove_bpe) for hypo in hypos]
+                hypo_strings = [task.tgt_dict.string(hypo[0]['tokens'].int().cpu(), args.remove_bpe) for hypo in hypos]
                 target_tokens = [utils.strip_pad(tt, task.tgt_dict.pad()).int().cpu() for tt in sample['target']]
                 tgt_strings = [task.tgt_dict.string(tokens, args.remove_bpe, escape_unk=True) for tokens in target_tokens]
                 write_to_file(ftran, fgold, hypo_strings, tgt_strings)
