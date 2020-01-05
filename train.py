@@ -331,7 +331,7 @@ def log_test(bleu, valid_bleu, trainer, progress):
         stats['best_valid_bleu'] = checkpoint_utils.save_checkpoint.prev_best
 
     key = "best_test_bleu"
-    if bleu > trainer.meters[key] or key not in trainer.meters:
+    if key not in trainer.meters or bleu > trainer.meters[key]:
         trainer.meters[key] = bleu
 
     stats['valid_bleu'] = valid_bleu
