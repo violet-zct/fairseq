@@ -37,8 +37,9 @@ def main(args, init_distributed=False):
 
     if distributed_utils.is_master(args):
         checkpoint_utils.verify_checkpoint_directory(args.save_dir)
-        if args.best_checkpoint_metric == 'bleu' and not os.path.exists(args.eval_dir):
-            os.mkdir(args.eval_dir)
+        if args.best_checkpoint_metric == 'bleu':
+            if not os.path.exists(args.eval_dir):
+                os.mkdir(args.eval_dir)
             args.remove_bpe = '@@ '
 
     # Print args
