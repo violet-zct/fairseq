@@ -264,7 +264,7 @@ class DocumentTranslationTask(FairseqTask):
 
         context_compress = None
         if self.args.context_form == 'doc' and self.args.context_compress is not None:
-            context_compress = map(int, self.args.context_compress.strip().split(','))
+            context_compress = list(map(int, self.args.context_compress.strip().split(',')))
 
         # infer langcode
         src, tgt = self.args.source_lang, self.args.target_lang
@@ -297,9 +297,9 @@ class DocumentTranslationTask(FairseqTask):
             dataset = TokenBlockDataset(
                 ctx_dataset,
                 ctx_dataset.sizes,
-                block_size=8192,  # set a large enough number
-                pad=self.src_dict.pad(),
-                eos=self.src_dict.eos(),
+                block_size=13000,  # set a large enough qnumber
+                pad=self.ctx_dict.pad(),
+                eos=self.ctx_dict.eos(),
                 break_mode='complete_doc',
                 include_targets=False,
             )

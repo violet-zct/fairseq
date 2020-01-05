@@ -31,7 +31,7 @@ def collate(
 
     def compute_compressed_lengths(lengths, strides):
         for s in strides:
-            lengths = (lengths - 1) / s + 1
+            lengths = (lengths - 1) // s + 1
         return lengths
 
     id = torch.LongTensor([s['id'] for s in samples])
