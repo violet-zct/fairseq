@@ -53,7 +53,7 @@ def collate(
             src_mask = torch.arange(src_tokens.size(1), device=src_tokens.device).type_as(src_tokens).expand(
                 len(src_tokens), src_tokens.size(1))
             src_mask = src_mask < context_lengths.unsqueeze(1)
-        elif input_form == 'cat' and context_form == 'doc' and context_compress is not None:
+        elif input_form == 'cat' and context_form != 'code' and context_compress is not None:
             # source = [pesudo compressed doc; <bos>; sent], context = doc
             context = merge_ctx(ctx_pad_idx)
             doc_lengths = torch.LongTensor([s[ctx_key].numel() for s in samples])

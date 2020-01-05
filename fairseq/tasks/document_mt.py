@@ -192,7 +192,7 @@ class DocumentTranslationTask(FairseqTask):
         parser.add_argument('-c', '--context-suffix', type=str,
                             help='path to context: split.context-suffix')
         parser.add_argument('--input-form', type=str, choices=['cat', 'sep'], default='cat')
-        parser.add_argument('--context-form', type=str, choices=['doc', 'codes'])
+        parser.add_argument('--context-form', type=str, choices=['doc', 'codes', 'sent'])
         parser.add_argument('--context-compress', type=str, default=None,
                             help='[format: 2,2,2], strides for conv layers in compression')
         parser.add_argument('--context-model-path', type=str, default=None,
@@ -263,7 +263,7 @@ class DocumentTranslationTask(FairseqTask):
         data_path = paths[epoch % len(paths)]
 
         context_compress = None
-        if self.args.context_form == 'doc' and self.args.context_compress is not None:
+        if self.args.context_form != 'code' and self.args.context_compress is not None:
             context_compress = list(map(int, self.args.context_compress.strip().split(',')))
 
         # infer langcode
@@ -286,6 +286,8 @@ class DocumentTranslationTask(FairseqTask):
         if self.args.context_form == 'codes':
             ctx_dataset = RawLabelDataset([torch.IntTensor(map(int, line.strip().split())) for line in open(ctx_path).readlines()])
             ctx_dataset = ReferenceDataset(ctx_dataset, index_list, sizes=ctx_dataset.sizes)
+        elif self.args.context_form == 'sent':
+            ctx_dataset = langpair_dataset.src
         elif self.args.context_form == 'doc':
             ctx_dataset = data_utils.load_indexed_dataset(
                 ctx_path, self.ctx_dict, self.args.dataset_impl, combine=False)  # in fact, the binary datasets doesn't need the dict
