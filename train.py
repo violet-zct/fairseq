@@ -51,6 +51,10 @@ def main(args, init_distributed=False):
     for valid_sub_split in args.valid_subset.split(','):
         task.load_dataset(valid_sub_split, combine=False, epoch=0)
 
+    if args.best_checkpoint_metric == 'bleu':
+        for test_sub_split in args.test_subset.split(','):
+            task.load_dataset(test_sub_split, combine=False, epoch=0)
+            
     # Build model and criterion
     model = task.build_model(args)
     criterion = task.build_criterion(args)
