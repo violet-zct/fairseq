@@ -37,6 +37,9 @@ def main(args, init_distributed=False):
 
     if distributed_utils.is_master(args):
         checkpoint_utils.verify_checkpoint_directory(args.save_dir)
+        if args.best_checkpoint_metric == 'bleu' and not os.path.exists(args.eval_dir):
+            os.mkdir(args.eval_dir)
+            args.remove_bpe = '@@ '
 
     # Print args
     print(args)
@@ -240,7 +243,7 @@ def validate(args, trainer, task, epoch_itr, subsets):
             seed=args.seed,
             num_shards=args.distributed_world_size,
             shard_id=args.distributed_rank,
-            num_workers=args.num_workers,
+            num_workers=0,
         ).next_epoch_itr(shuffle=False)
         progress = progress_bar.build_progress_bar(
             args, itr, epoch_itr.epoch,
@@ -274,11 +277,12 @@ def validate(args, trainer, task, epoch_itr, subsets):
             stats[k] = meter.avg
         progress.print(stats, tag=subset, step=trainer.get_num_updates())
 
-        valid_losses.append(
-            stats[args.best_checkpoint_metric].avg
-            if args.best_checkpoint_metric == 'loss'
-            else stats[args.best_checkpoint_metric]
-        )
+        # valid_losses.append(
+        #     stats[args.best_checkpoint_metric].avg
+        #     if args.best_checkpoint_metric == 'loss'
+        #     else stats[args.best_checkpoint_metric]
+        # )
+        valid_losses.append(stats['loss'].avg)
     return valid_losses
 
 
@@ -292,7 +296,7 @@ def get_valid_stats(trainer, args, extra_meters=None):
         nll_loss = stats['loss']
     stats['ppl'] = utils.get_perplexity(nll_loss.avg)
     stats['num_updates'] = trainer.get_num_updates()
-    if hasattr(checkpoint_utils.save_checkpoint, 'best'):
+    if hasattr(checkpoint_utils.save_checkpoint, 'best') and (not args.best_checkpoint_metric == 'bleu'):
         key = 'best_{0}'.format(args.best_checkpoint_metric)
         best_function = max if args.maximize_best_checkpoint_metric else min
 
@@ -408,14 +412,19 @@ def multi_gpu_bleu(args, trainer, task, generator, model, epoch_itr, subsets, pp
                 no_progress_bar='simple'
             )
 
+        ignore_results = False
         for sample in progress:
-            if 'net_input' not in sample:
-                continue
+            if sample is None or len(sample) == 0:
+                sample = trainer._dummy_batch
+                ignore_results = True
             sample = trainer._prepare_sample(sample)
             hypos = task.inference_step(generator, [model], sample, prefix_tokens=None)
-            hypo_strings = [task.tgt_dict.string(hypo['tokens'].int().cpu(), args.remove_bpe) for hypo in hypos[:1]]
-            tgt_strings = task.tgt_dict.string(sample['target'].int().cpu(), args.remove_bpe, escape_unk=True)
-            write_to_file(ftran, fgold, hypo_strings, tgt_strings.strip().split('\n'))
+
+            if not ignore_results:
+                hypo_strings = [task.tgt_dict.string(hypo[:1]['tokens'].int().cpu(), args.remove_bpe) for hypo in hypos]
+                target_tokens = [utils.strip_pad(tt, task.tgt_dict.pad()).int().cpu() for tt in sample['target']]
+                tgt_strings = [task.tgt_dict.string(tokens, args.remove_bpe, escape_unk=True) for tokens in target_tokens]
+                write_to_file(ftran, fgold, hypo_strings, tgt_strings)
 
         ftran.close()
         fgold.close()

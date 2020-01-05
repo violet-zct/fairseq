@@ -297,13 +297,13 @@ class DocumentTranslationTask(FairseqTask):
             dataset = TokenBlockDataset(
                 ctx_dataset,
                 ctx_dataset.sizes,
-                block_size=13000,  # set a large enough qnumber
+                block_size=13000,  # set a large enough number
                 pad=self.ctx_dict.pad(),
                 eos=self.ctx_dict.eos(),
                 break_mode='complete_doc',
                 include_targets=False,
             )
-            print("Loaded {} documents/context!".format(len(dataset)))
+            print("| Loaded {} documents/context!".format(len(dataset)))
             # return {'id': index, 'source': source, 'target': target}: target = None
             ctx_dataset = MonolingualDataset(
                 dataset,

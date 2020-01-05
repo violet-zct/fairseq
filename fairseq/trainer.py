@@ -598,11 +598,11 @@ class Trainer(object):
         return sample
 
     def _prepare_sample(self, sample):
-        if self.args.task == 'doc_translation':
-            sample = self._prepare_sample_with_context(sample)
-
         if sample is None or len(sample) == 0:
             return None
+
+        if self.args.task == 'doc_translation':
+            sample = self._prepare_sample_with_context(sample)
 
         if self.cuda:
             sample = utils.move_to_cuda(sample)
