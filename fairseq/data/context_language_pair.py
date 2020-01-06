@@ -37,7 +37,7 @@ def collate(
     id = torch.LongTensor([s['id'] for s in samples])
 
     def cat_merge_source():
-        ctx_key = 'context' if context_form != 'sent' else 'source'
+        ctx_key = 'context'
         sent_key = 'source'
         context = None
         context_lengths = None
