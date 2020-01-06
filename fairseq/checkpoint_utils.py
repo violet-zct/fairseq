@@ -153,7 +153,7 @@ def load_model_ensemble(filenames, arg_overrides=None, task=None):
         task (fairseq.tasks.FairseqTask, optional): task to use for loading
     """
     ensemble, args, _task = load_model_ensemble_and_task(filenames, arg_overrides, task)
-    return ensemble, args
+    return ensemble, args, _task
 
 
 def load_model_ensemble_and_task(filenames, arg_overrides=None, task=None):
