@@ -37,7 +37,7 @@ def collate(
     id = torch.LongTensor([s['id'] for s in samples])
 
     def cat_merge_source():
-        ctx_key = 'context'
+        ctx_key = 'context' if context_form != 'sent' else 'source'
         sent_key = 'source'
         context = None
         context_lengths = None
@@ -223,7 +223,7 @@ class ContextLanguagePairDataset(FairseqDataset):
         """Return an example's size as a float or tuple. This value is used when
         filtering a dataset with ``--max-positions``."""
         src_size, tgt_size = self.langpair_dataset.size(index)
-        src_size = max(src_size, self.ctx_dataset.size(index)) if self.input_form == 'sep' else (src_size + self.ctx_dataset.size(index))
+        src_size = max(src_size, self.ctx_dataset.sizes[index]) if self.input_form == 'sep' else (src_size + self.ctx_dataset.sizes[index])
         return (src_size, tgt_size)
 
     def ordered_indices(self):
