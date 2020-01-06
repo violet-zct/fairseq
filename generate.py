@@ -28,24 +28,32 @@ def main(args):
 
     use_cuda = torch.cuda.is_available() and not args.cpu
 
-    # Load dataset splits
-    task = tasks.setup_task(args)
-    task.load_dataset(args.gen_subset)
+    # # Load dataset splits
+    # task = tasks.setup_task(args)
+    # task.load_dataset(args.gen_subset)
+    #
+    # # Set dictionaries
+    # try:
+    #     src_dict = getattr(task, 'source_dictionary', None)
+    # except NotImplementedError:
+    #     src_dict = None
+    # tgt_dict = task.target_dictionary
 
+    task = None
+    # Load ensemble
+    print('| loading model(s) from {}'.format(args.path))
+    models, _model_args, task = checkpoint_utils.load_model_ensemble(
+        args.path.split(':'),
+        arg_overrides=eval(args.model_overrides),
+        task=task,
+    )
+    task.load_dataset(args.gen_subset)
     # Set dictionaries
     try:
         src_dict = getattr(task, 'source_dictionary', None)
     except NotImplementedError:
         src_dict = None
     tgt_dict = task.target_dictionary
-
-    # Load ensemble
-    print('| loading model(s) from {}'.format(args.path))
-    models, _model_args = checkpoint_utils.load_model_ensemble(
-        args.path.split(':'),
-        arg_overrides=eval(args.model_overrides),
-        task=task,
-    )
 
     # Optimize ensemble for generation
     for model in models:
