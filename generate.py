@@ -13,6 +13,54 @@ from fairseq import bleu, checkpoint_utils, options, progress_bar, tasks, utils
 from fairseq.meters import StopwatchMeter, TimeMeter
 
 
+def prepare_sample_with_context(task, sample):
+    process = sample['process_context']
+    device = sample['id'].device
+    task.ctx_model.eval()
+    if 'doc' in process:
+        doc_input = sample['net_input']['context'].cuda()
+        doc_lengths = doc_input.ne(task.ctx_dict.pad()).sum(1).cuda()
+        with torch.no_grad():
+            code_mask, _, quantize_out, _, codes = task.ctx_model.forward_encoder(doc_input,
+                                                                                       doc_lengths,
+                                                                                       extrac_code_only=True)
+        if process == 'quantitize_doc':
+            sample['net_input']['context'] = quantize_out['encoder_out'].transpose(0, 1).to(
+                device)  # T' x B x C -> B x T' x C
+        elif process == 'compress_doc':
+            context = codes['bottom_codes'].to(device)  # B x T'
+            context[context.eq(-1)] = 0
+            sample['net_input']['context'] = context
+    elif process == 'quantitize_code':
+        with torch.no_grad():
+            sample['net_input']['context'] = \
+            task.ctx_model.quantization(sample['net_input']['context'].cuda(), code_mask=None,
+                                             extract_codes_only=True)['encoder_out'].transpose(0, 1).to(device)
+    torch.cuda.empty_cache()
+    return sample
+
+
+def prepare_sample(args, task, sample, use_cuda=True):
+    if sample is None or len(sample) == 0:
+        return None
+
+    if args.task == 'doc_translation':
+        sample = prepare_sample_with_context(task, sample)
+
+    if use_cuda:
+        sample = utils.move_to_cuda(sample)
+
+    def apply_half(t):
+        if t.dtype is torch.float32:
+            return t.half()
+        return t
+
+    if args.fp16:
+        sample = utils.apply_to_sample(apply_half, sample)
+
+    return sample
+
+
 def main(args):
     assert args.path is not None, '--path required for generation!'
     assert not args.sampling or args.nbest == args.beam, \
@@ -100,7 +148,7 @@ def main(args):
     with progress_bar.build_progress_bar(args, itr) as t:
         wps_meter = TimeMeter()
         for sample in t:
-            sample = utils.move_to_cuda(sample) if use_cuda else sample
+            sample = prepare_sample(_model_args, task, sample, use_cuda)
             if 'net_input' not in sample:
                 continue
 
