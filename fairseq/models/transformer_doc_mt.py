@@ -282,9 +282,9 @@ class TransformerEncoderWithContext(TransformerEncoder):
         # src_mask set all context tokens to be True
         # embed tokens and positions
 
-        sent_pos_input = src_tokens.masked_fill_(src_mask, self.padding_idx)
+        sent_pos_input = src_tokens.masked_fill(src_mask, self.padding_idx)
         sent_pos_emb = self.embed_positions(sent_pos_input)
-        ctx_pos_input = src_tokens.masked_fill_(~src_mask, self.padding_idx)
+        ctx_pos_input = src_tokens.masked_fill(~src_mask, self.padding_idx)
         ctx_pos_emb = self.embed_positions(ctx_pos_input)
 
         sent_mask = src_mask.type_as(ctx_pos_emb).unsqueeze(-1)

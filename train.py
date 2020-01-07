@@ -365,8 +365,8 @@ def multi_gpu_bleu(args, trainer, task, generator, model, epoch_itr, subsets, pp
             filelists.append(os.path.join(args.eval_dir, '{}_{}.translation'.format(prefix, i)))
             filelists.append(os.path.join(args.eval_dir, '{}_{}.gold'.format(prefix, i)))
 
-        new_ftran_filename = os.path.join(args.eval_dir, '{}_{}.translation'.format(epoch, updates))
-        new_fgold_filename = os.path.join(args.eval_dir, '{}_{}.gold'.format(epoch, updates))
+        new_ftran_filename = os.path.join(args.eval_dir, '{}_{}_{}.translation'.format(pprefix, epoch, updates))
+        new_fgold_filename = os.path.join(args.eval_dir, '{}_{}_{}.gold'.format(pprefix, epoch, updates))
 
         with io.open(new_ftran_filename, "w", encoding="utf-8") as ft, io.open(new_fgold_filename, "w", encoding="utf-8") as fg:
             for i in range(total_ranks):

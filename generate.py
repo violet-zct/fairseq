@@ -95,6 +95,7 @@ def main(args):
         arg_overrides=eval(args.model_overrides),
         task=task,
     )
+    print(_model_args)
     task.load_dataset(args.gen_subset)
     # Set dictionaries
     try:

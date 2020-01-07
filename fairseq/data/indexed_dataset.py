@@ -431,6 +431,9 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
         def sizes(self):
             return self._sizes
 
+        def size(self, index):
+            return self.sizes[index]
+
         @lru_cache(maxsize=8)
         def __getitem__(self, i):
             return self._pointers[i], self._sizes[i]

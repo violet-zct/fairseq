@@ -78,8 +78,9 @@ def collate(
 
         if code_lengths is not None:
             context_lengths = code_lengths.type_as(id)
+            # fill pesudo context with placeholder that is not pad_idx to avoid conflicts
             src_tokens = data_utils.collate_tokens(
-                [torch.cat([s[sent_key][0].new(m.item()).fill_(pad_idx), s[sent_key]])
+                [torch.cat([s[sent_key][0].new(m.item()).fill_(pad_idx+2), s[sent_key]])
                  for s, m in zip(samples, code_lengths)], pad_idx, left_pad=False, )
             src_mask = torch.arange(src_tokens.size(1), device=src_tokens.device).type_as(src_tokens).expand(
                 len(src_tokens), src_tokens.size(1))
@@ -223,7 +224,7 @@ class ContextLanguagePairDataset(FairseqDataset):
         """Return an example's size as a float or tuple. This value is used when
         filtering a dataset with ``--max-positions``."""
         src_size, tgt_size = self.langpair_dataset.size(index)
-        src_size = max(src_size, self.ctx_dataset.sizes[index]) if self.input_form == 'sep' else (src_size + self.ctx_dataset.sizes[index])
+        src_size = max(src_size, self.ctx_dataset.size(index)) if self.input_form == 'sep' else (src_size + self.ctx_dataset.size(index))
         return (src_size, tgt_size)
 
     def ordered_indices(self):
@@ -235,7 +236,7 @@ class ContextLanguagePairDataset(FairseqDataset):
             indices = np.arange(len(self))
         if self.langpair_dataset.tgt_sizes is not None:
             indices = indices[np.argsort(self.langpair_dataset.tgt_sizes[indices], kind='mergesort')]
-        return indices[np.argsort(self.ctx_dataset.sizes[indices], kind='mergesort')]
+        return indices[np.argsort(self.ctx_dataset.size(indices), kind='mergesort')]
 
     @property
     def supports_prefetch(self):
