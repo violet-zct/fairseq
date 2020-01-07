@@ -421,7 +421,8 @@ def multi_gpu_bleu(args, trainer, task, generator, model, epoch_itr, subsets, pp
             if sample is None or len(sample) == 0:
                 sample = trainer._dummy_batch
                 ignore_results = True
-            sample = trainer._prepare_sample(sample)
+                
+            sample = trainer._prepare_sample(sample, dummy=ignore_results)
             hypos = task.inference_step(generator, [model], sample, prefix_tokens=None)
 
             if not ignore_results:
