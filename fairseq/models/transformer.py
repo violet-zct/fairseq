@@ -384,7 +384,7 @@ class TransformerEncoder(FairseqEncoder):
 
         if encoder_out.get('bi_context_padding_mask', None) is not None:
             encoder_out['bi_context_padding_mask'] = \
-                encoder_out['bi_context_padding_mask'].index_select(0, new_order)
+                encoder_out['bi_context_padding_mask'].index_select(1, new_order)
 
         if encoder_out.get('bi_context', None) is not None:
             encoder_out['bi_context'] = \
