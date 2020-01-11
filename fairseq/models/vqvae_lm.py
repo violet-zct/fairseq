@@ -62,6 +62,7 @@ class Quantize(nn.Module):
         self.samples = args.soft_samples
 
         embed = torch.randn(dim, n_embed)
+        # embed = torch.normal(mean=0, std=dim ** -0.5, size=(dim, n_embed))
         self.register_buffer('embed', embed)
         self.register_buffer('cluster_size', torch.zeros(n_embed))
         self.register_buffer('embed_avg', embed.clone())
@@ -93,7 +94,7 @@ class Quantize(nn.Module):
             most_attend_codes = sorted_indices[:self.most_attend_k]
             dist = dist.index_fill_(1, most_attend_codes, float('inf'))
 
-        if self.soft:
+        if self.soft and self.training:
             tau = self.get_temperature(updates)
             embed_ind = torch.multinomial(F.softmax(-dist / tau, -1), self.samples, replacement=True)  # S x samples
             embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten).mean(1)  # S x samples x K -> S x K
@@ -183,9 +184,6 @@ class VQVAE(FairseqLanguageModel):
         self.pretrain_steps = args.pretrain_steps
         self.encoder_context_window = args.context_window
 
-        # self.encoder_opt_dropout = args.encoder_opt_dropout
-        # self.encoder_form = args.encoder_form
-        # self.shrink_ratio = args.shrink_ratio
         self.encoder_opt_dropout = getattr(args, 'encoder_opt_dropout', 0.0)
         self.encoder_form = getattr(args, 'encoder_form', 'mix')
         self.shrink_ratio = getattr(args, 'shrink_ratio', 8)
@@ -335,13 +333,6 @@ class VQVAE(FairseqLanguageModel):
                             help='mix=transformer+cnn, conv=fully cnn, append=transformer+pending positional embedding')
         parser.add_argument('--shrink-ratio', type=int, default=8,
                             help='used for append')
-        # todo: remove mono including multi-attention modifications
-        parser.add_argument('--mono-attn', type=int, default=0,
-                            help='use monotonic attention')
-        parser.add_argument('--mono-attn-var', type=float, default=1.,
-                            help='variance of normal gaussian in monotonic attention')
-        parser.add_argument('--mono-attn-scale', type=float, default=1.0,
-                            help='used to scale the gaussian density in monotonic attention')
 
         parser.add_argument('--use-deconv', type=int, default=0,
                             help='apply deconvolution to latent vectors')
@@ -350,7 +341,10 @@ class VQVAE(FairseqLanguageModel):
         parser.add_argument('--aug-loss', default=None, choices=['deconv_predict', 'code_bow'])
         parser.add_argument('--aug-loss-weight', default=0.2, type=float)
         parser.add_argument('--share-aug-softmax-with-emb', default=0, type=int)
-        # fmt: on
+        # fmt: ont
+
+        # prepend placeholder
+        parser.add_argument('--prefill', default=0, type=int)
 
     @classmethod
     def build_model(cls, args, task):
@@ -471,9 +465,6 @@ class VQVAE(FairseqLanguageModel):
             )
         else:
             from fairseq.models.typed_transformer import TransformerDecoder
-            use_mono_attn = getattr(args, 'mono_attn', 0)
-            mono_attn_var = getattr(args, 'mono_attn_var', 1.0)
-            mono_attn_scale = getattr(args, 'mono_attn_scale', 1.)
             text_decoder = TransformerDecoder(
                 args,
                 tgt_dict,
@@ -483,9 +474,6 @@ class VQVAE(FairseqLanguageModel):
                 args.max_source_positions, args.decoder_layers,
                 encoder_embed_dim=args.bottom_latent_dim,
                 no_encoder_attn=getattr(args, 'no_cross_attention', False),
-                mono_attn_shrink_ratio=args.shrink_ratio if use_mono_attn else -1,
-                mono_attn_scale=mono_attn_scale,
-                mono_attn_var=mono_attn_var,
             )
         return text_decoder
 
@@ -543,8 +531,8 @@ class VQVAE(FairseqLanguageModel):
         aug_tokens = src_tokens.new_ones((src_tokens.size(0), max_length)).fill_(self.text_encoder.dictionary.bos_index)
         return aug_tokens, mask
 
-    def forward(self, decoder_tokens, lengths, full_tokens, update_steps, **kwargs):
-        mask, diff, quantize_out, quantize_stats, codes = self.forward_encoder(full_tokens, lengths, update_steps)
+    def forward(self, decoder_tokens, lengths, full_tokens, update_steps, prefill_mask=None, **kwargs):
+        mask, diff, quantize_out, quantize_stats, codes = self.forward_encoder(full_tokens, lengths, update_steps, prefill_mask)
         if self.training and self.word_drop_rate > 0.0:
             decoder_tokens = self.spacing_mask_words(decoder_tokens, lengths)
             # decoder_tokens = self.mask_words(decoder_tokens, lengths)
@@ -555,7 +543,7 @@ class VQVAE(FairseqLanguageModel):
         # todo: prior model - one decoder, one encoder-decoder
         # todo: hierarchical model
 
-    def forward_encoder(self, full_tokens, lengths, update_steps=-1, extrac_code_only=False):
+    def forward_encoder(self, full_tokens, lengths, update_steps=-1, prefill_mask=None, extrac_code_only=False):
         """
                 output of text encoder
                 {
@@ -590,8 +578,10 @@ class VQVAE(FairseqLanguageModel):
                     full_tokens = torch.cat([full_tokens, full_tokens.new_full((full_tokens.size(0), pad_num), self.pad_index)], dim=1)
             text_conv_out, mask = self.text_encoder(full_tokens, lengths, pad_num)
         elif self.encoder_form == 'append':
-            aug_tokens, mask = self.create_aug_input(full_tokens, lengths)
-            text_encoder_out = self.text_encoder(full_tokens, auxilary_tokens=aug_tokens)
+            code_len = prefill_mask.sum(1).max().item()
+            print(full_tokens[0][0])
+            mask = prefill_mask.eq(full_tokens[0][0])[:, :code_len]
+            text_encoder_out = self.text_encoder(full_tokens, prefill_mask)
             text_conv_out = text_encoder_out['encoder_out'][full_tokens.size(1):, :, :]  # T' x B x C
         else:
             raise NotImplementedError
@@ -673,9 +663,6 @@ class VQVAE(FairseqLanguageModel):
             quantize_out['global_quantize'] = torch.cat(gquants, dim=-1)
 
         if not self.training:
-            if self.bottom_quantizer.soft:
-                _, embed_ind = F.one_hot(embed_ind, self.bottom_quantizer.n_embed).sum(1).max(1)
-
             embed_ind = embed_ind.view(*text_conv_out.shape[:-1])  # T x batch
             codes = {'bottom_codes': embed_ind.transpose(0, 1).masked_fill(~mask, -1)}
             if self.global_quantizer is not None:
@@ -685,9 +672,6 @@ class VQVAE(FairseqLanguageModel):
         return mask, diff, quantize_out, quantize_stats, codes
 
     def forward_decoder(self, decoder_tokens, encoder_out, incremental_state=None):
-        if False and self.aug_input == 'add' and incremental_state is None:
-            x = encoder_out['encoder_out']
-            encoder_out['encoder_out'] = torch.cat([x[:, 1:, :], x.new_zeros(x.size(0), 1, x.size(2))], dim=1)
         decoder_out = self.decoder(decoder_tokens, encoder_out=encoder_out, incremental_state=incremental_state,
                                    aug_input=self.aug_input)
         return decoder_out
