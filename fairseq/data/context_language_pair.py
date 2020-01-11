@@ -90,7 +90,7 @@ def collate(
 
     src_tokens, src_mask, context, context_lengths, process_context = cat_merge_source()
     # sort by descending source length
-    src_lengths = torch.LongTensor([s.numel() for s in src_tokens])
+    src_lengths = torch.LongTensor([s.numel() for s in src_tokens])  # it is range(1, batch size)
     src_lengths, sort_order = src_lengths.sort(descending=True)
     id = id.index_select(0, sort_order)
     src_tokens = src_tokens.index_select(0, sort_order)
