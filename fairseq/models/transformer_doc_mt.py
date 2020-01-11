@@ -133,7 +133,7 @@ class TransformerContextModel(FairseqEncoderDecoderModel):
         parser.add_argument('--layer-wise-attention', default=False, action='store_true',
                             help='perform layer-wise attention (cross-attention or cross+self-attention)')
 
-        parser.add_argument('--sep-attn-share-key-proj', default=0, type=1)
+        parser.add_argument('--sep-attn-share-key-proj', default=0, type=int)
         # fmt: on
 
     @classmethod

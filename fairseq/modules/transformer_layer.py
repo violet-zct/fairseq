@@ -145,7 +145,8 @@ class TransformerDecoderLayer(nn.Module):
             self_attention=not self.cross_self_attention,
         )
         self.dropout = args.dropout
-        self.bi_context_attn = (args.input_form == 'sep')
+        bi_context_attn = hasattr(args, 'input_form', None)
+        self.bi_context_attn = (bi_context_attn == 'sep')
         self.share_key_proj = hasattr(args, 'sep_attn_share_key_proj', False)
 
         self.activation_fn = utils.get_activation_fn(
