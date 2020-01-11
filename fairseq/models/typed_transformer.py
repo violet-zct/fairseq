@@ -84,8 +84,37 @@ class TransformerEncoder(FairseqEncoder):
         x = F.dropout(x, p=self.dropout, training=self.training)
         return x, embed
 
+    # def forward_embedding_prefill(self, src_tokens, src_mask):
+    #     # src_mask set all context tokens to be True
+    #     # embed tokens and positions
+    #
+    #     sent_pos_input = src_tokens.masked_fill(src_mask, self.padding_idx)
+    #     sent_pos_emb = self.embed_positions(sent_pos_input)
+    #     ctx_pos_input = src_tokens.masked_fill(~src_mask, self.padding_idx)
+    #     ctx_pos_emb = self.embed_positions(ctx_pos_input)
+    #
+    #     sent_mask = src_mask.type_as(ctx_pos_emb).unsqueeze(-1)
+    #     context_mask = (~src_mask).type_as(ctx_pos_emb).unsqueeze(-1)
+    #     pos_emb = ctx_pos_emb * sent_mask + sent_pos_emb * context_mask
+    #
+    #     sent_embed = self.embed_scale * self.embed_tokens(src_tokens)
+    #     if not (self.context_form == 'doc' and self.context_compress is None):
+    #         # not plain concat of doc and sent, has compressed context
+    #         if context.dim() == 2:
+    #             context = self.embed_scale * self.code_embed_tokens(context)
+    #         diff = sent_embed.size(1) - context.size(1)
+    #         context = torch.cat([context, context.new_zeros((sent_embed.size(0), diff, sent_embed.size(-1)))], dim=1)
+    #
+    #         embed = context * sent_mask + sent_embed * context_mask
+    #     else:
+    #         embed = sent_embed
+    #
+    #     x = embed + pos_emb
+    #     x = F.dropout(x, p=self.dropout, training=self.training)
+    #     return x, embed
+
     def forward(self, src_tokens=None, cls_input=None, return_all_hiddens=False, src_encodings=None,
-                encoder_padding_mask=None, attn_mask=None, auxilary_tokens=None):
+                encoder_padding_mask=None, attn_mask=None, prefill_mask=None):
         """
         Args:
             src_tokens (LongTensor): tokens in the source language of shape
@@ -111,14 +140,15 @@ class TransformerEncoder(FairseqEncoder):
             return_all_hiddens = True
 
         if self.embed_tokens is not None:
-            x, encoder_embedding = self.forward_embedding(src_tokens)
-            aug_x, _ = self.forward_embedding(auxilary_tokens)
-            x = torch.cat([x, aug_x], dim=1)
-            # B x T x C -> T x B x C
-            x = x.transpose(0, 1)
-            src_tokens = torch.cat([src_tokens, auxilary_tokens], dim=1)
-            # compute padding mask
-            encoder_padding_mask = (src_tokens.eq(self.padding_idx) | src_tokens.eq(self.dictionary.bos_index))
+            # x, encoder_embedding = self.forward_embedding(src_tokens)
+            # aug_x, _ = self.forward_embedding(auxilary_tokens)
+            # x = torch.cat([x, aug_x], dim=1)
+            # # B x T x C -> T x B x C
+            # x = x.transpose(0, 1)
+            # src_tokens = torch.cat([src_tokens, auxilary_tokens], dim=1)
+            # # compute padding mask
+            # encoder_padding_mask = (src_tokens.eq(self.padding_idx) | src_tokens.eq(self.dictionary.bos_index))
+            pass
         else:
             assert encoder_padding_mask is not None
             src_tokens = encoder_padding_mask.long()
@@ -219,8 +249,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
 
     def __init__(self, args, dictionary, embed_tokens, decoder_embed_dim, decoder_attention_heads,
                  decoder_ffn_embed_dim, decoder_output_dim, max_target_positions, decoder_layers,
-                 encoder_embed_dim=-1, no_encoder_attn=False,
-                 mono_attn_shrink_ratio=-1, mono_attn_var=1.0, mono_attn_scale=1.):
+                 encoder_embed_dim=-1, no_encoder_attn=False,):
         super().__init__(dictionary)
         self.register_buffer('version', torch.Tensor([3]))
 
@@ -250,9 +279,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         self.layers = nn.ModuleList([])
         self.layers.extend([
             TransformerDecoderLayer(args, decoder_embed_dim, decoder_attention_heads,
-                                    decoder_ffn_embed_dim, encoder_embed_dim, no_encoder_attn,
-                                    mono_attn_shrink_ratio=mono_attn_shrink_ratio,
-                                    mono_attn_var=mono_attn_var, mono_attn_scale=mono_attn_scale)
+                                    decoder_ffn_embed_dim, encoder_embed_dim, no_encoder_attn,)
             for _ in range(decoder_layers)
         ])
 

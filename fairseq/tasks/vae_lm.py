@@ -28,6 +28,11 @@ class VQVAELanguageModelingTask(LanguageModelingTask):
     #     """Add task-specific arguments to the parser."""
     #     # fmt: off
 
+    def __init__(self, args, dictionary, output_dictionary=None, targets=None):
+        super().__init__(args, dictionary, output_dictionary, targets)
+        self.prefill = getattr(args, 'prefill', 1)
+        self.strides = list(map(int, args.bottom_conv_stride.split(',')))
+
     def extract_codes(self, sample, model):
         model.eval()
         with torch.no_grad():
@@ -69,6 +74,81 @@ class VQVAELanguageModelingTask(LanguageModelingTask):
                 match_source_len=getattr(args, 'match_source_len', False),
                 no_repeat_ngram_size=getattr(args, 'no_repeat_ngram_size', 0),
             )
+
+    def load_dataset(self, split, epoch=0, combine=False, **kwargs):
+        """Load a given dataset split.
+
+        Args:
+            split (str): name of the split (e.g., train, valid, test)
+        """
+        paths = self.args.data.split(":")
+        assert len(paths) > 0
+
+        data_path = paths[epoch % len(paths)]
+        split_path = os.path.join(data_path, split)
+
+        dataset = data_utils.load_indexed_dataset(
+            split_path, self.dictionary, self.args.dataset_impl, combine=combine
+        )
+        if dataset is None:
+            raise FileNotFoundError(
+                "Dataset not found: {} ({})".format(split, split_path)
+            )
+
+        dataset = TokenBlockDataset(
+            dataset,
+            dataset.sizes,
+            self.args.tokens_per_sample,
+            pad=self.dictionary.pad(),
+            eos=self.dictionary.eos(),
+            break_mode=self.args.sample_break_mode,
+            include_targets=True,
+        )
+
+        add_eos_for_other_targets = (
+            self.args.sample_break_mode is not None
+            and self.args.sample_break_mode != "none"
+        )
+
+        self.datasets[split] = MonolingualDataset(
+            dataset,
+            dataset.sizes,
+            self.dictionary,
+            self.output_dictionary,
+            add_eos_for_other_targets=add_eos_for_other_targets,
+            shuffle=True,
+            targets=self.targets,
+            add_bos_token=self.args.add_bos_token,
+            prefill=self.prefill,
+            strides=self.strides
+        )
+
+    def build_dataset_for_inference(self, src_tokens, src_lengths):
+        return TransformEosDataset(
+            MonolingualDataset(
+                TokenBlockDataset(
+                    src_tokens,
+                    src_lengths,
+                    block_size=None,
+                    pad=self.source_dictionary.pad(),
+                    eos=self.source_dictionary.eos(),
+                    break_mode="eos",
+                    include_targets=False,
+                ),
+                src_lengths,
+                self.source_dictionary,
+                self.target_dictionary,
+                add_eos_for_other_targets=False,
+                shuffle=False,
+                add_bos_token=self.args.add_bos_token,
+                prefill=self.prefill,
+                strides=self.strides,
+            ),
+            eos=self.source_dictionary.eos(),
+            # remove EOS since this will be used as a prefix for generation
+            remove_eos_from_src=True,
+            has_target=False,
+        )
 
     def inference_step(self, generator, models, sample, prefix_tokens=None):
         with torch.no_grad():
