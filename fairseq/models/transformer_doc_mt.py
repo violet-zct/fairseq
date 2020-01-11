@@ -328,7 +328,7 @@ class TransformerEncoderWithContext(TransformerEncoder):
         y = F.dropout(y, p=self.dropout, training=self.training)
         return x, embed, y
 
-    def forward(self, src_tokens, src_lengths, src_mask, context, context_lengths, context_task,
+    def forward(self, src_tokens, src_lengths, src_mask, context, context_lengths, context_mask,
                 cls_input=None, return_all_hiddens=False):
         """
         Args:
@@ -393,7 +393,7 @@ class TransformerEncoderWithContext(TransformerEncoder):
 
         if self.input_form == 'sep':
             output['bi_context'] = context
-            output['bi_context_padding_mask'] = context_task
+            output['bi_context_padding_mask'] = context_mask
         return output
 
 
