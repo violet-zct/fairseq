@@ -430,7 +430,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
             (default: False).
     """
 
-    def __init__(self, args, dictionary, embed_tokens, no_encoder_attn=False):
+    def __init__(self, args, dictionary, embed_tokens, no_encoder_attn=False,):
         super().__init__(dictionary)
         self.register_buffer('version', torch.Tensor([3]))
 
@@ -486,23 +486,6 @@ class TransformerDecoder(FairseqIncrementalDecoder):
             self.layer_norm = LayerNorm(embed_dim)
         else:
             self.layer_norm = None
-
-    def mask_words(self, tokens):
-        batch = tokens.size(0)
-        src_masks = tokens.eq(self.padding_idx) | tokens.eq(self.dictionary.eos())
-        lengths = (~src_masks).sum(dim=1).type_as(tokens)
-        full_length = tokens.size(1)
-        if full_length <= 2:
-            return torch.ones_like(tokens)
-        mask_lengths = (lengths.float() * self.drop_emb).long()
-        mask = torch.arange(full_length).to(tokens.device).unsqueeze(0).expand(batch, full_length).ge(
-            mask_lengths.unsqueeze(1))
-        mask = mask.long()
-        scores = tokens.clone().float().uniform_()
-        scores.masked_fill_(src_masks, -1)
-        sorted_values, sorted_idx = torch.sort(scores, dim=-1, descending=True)
-        mask = mask.scatter(1, sorted_idx, mask)  # 0 are dropped words
-        return mask
 
     def forward(
         self,
@@ -631,6 +614,8 @@ class TransformerDecoder(FairseqIncrementalDecoder):
                 self_attn_padding_mask=self_attn_padding_mask,
                 need_attn=(idx == alignment_layer),
                 need_head_weights=(idx == alignment_layer),
+                bi_context=encoder_out['bi_context'] if 'bi_context' in encoder_out else None,
+                bi_context_padding_mask=encoder_out['bi_context_padding_mask'] if 'bi_context_padding_mask' in encoder_out else None,
             )
 
             inner_states.append(x)

@@ -416,20 +416,17 @@ def multi_gpu_bleu(args, trainer, task, generator, model, epoch_itr, subsets, pp
                 no_progress_bar='simple'
             )
 
-        ignore_results = False
         for sample in progress:
             if sample is None or len(sample) == 0:
-                sample = trainer._dummy_batch
-                ignore_results = True
-                
-            sample = trainer._prepare_sample(sample, dummy=ignore_results)
+                break
+
+            sample = trainer._prepare_sample(sample)
             hypos = task.inference_step(generator, [model], sample, prefix_tokens=None)
 
-            if not ignore_results:
-                hypo_strings = [task.tgt_dict.string(hypo[0]['tokens'].int().cpu(), args.remove_bpe) for hypo in hypos]
-                target_tokens = [utils.strip_pad(tt, task.tgt_dict.pad()).int().cpu() for tt in sample['target']]
-                tgt_strings = [task.tgt_dict.string(tokens, args.remove_bpe, escape_unk=True) for tokens in target_tokens]
-                write_to_file(ftran, fgold, hypo_strings, tgt_strings)
+            hypo_strings = [task.tgt_dict.string(hypo[0]['tokens'].int().cpu(), args.remove_bpe) for hypo in hypos]
+            target_tokens = [utils.strip_pad(tt, task.tgt_dict.pad()).int().cpu() for tt in sample['target']]
+            tgt_strings = [task.tgt_dict.string(tokens, args.remove_bpe, escape_unk=True) for tokens in target_tokens]
+            write_to_file(ftran, fgold, hypo_strings, tgt_strings)
 
         ftran.close()
         fgold.close()

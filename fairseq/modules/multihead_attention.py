@@ -19,8 +19,7 @@ class MultiheadAttention(nn.Module):
 
     def __init__(self, embed_dim, num_heads, kdim=None, vdim=None, dropout=0., bias=True,
                  add_bias_kv=False, add_zero_attn=False, self_attention=False,
-                 encoder_decoder_attention=False,
-                 gaussion_prior_var=1.0, kernel_size=-1, temperature_scale=10.):
+                 encoder_decoder_attention=False, shared_k_proj_weight=None, qkv_same_dim=True):
         super().__init__()
         '''
             gaussion_prior_var (float): variance of normal gaussian.
@@ -29,7 +28,7 @@ class MultiheadAttention(nn.Module):
         self.embed_dim = embed_dim
         self.kdim = kdim if kdim is not None else embed_dim
         self.vdim = vdim if vdim is not None else embed_dim
-        self.qkv_same_dim = self.kdim == embed_dim and self.vdim == embed_dim
+        self.qkv_same_dim = (self.kdim == embed_dim and self.vdim == embed_dim and qkv_same_dim)
 
         self.num_heads = num_heads
         self.dropout = dropout
@@ -46,7 +45,12 @@ class MultiheadAttention(nn.Module):
         if self.qkv_same_dim:
             self.in_proj_weight = Parameter(torch.Tensor(3 * embed_dim, embed_dim))
         else:
-            self.k_proj_weight = Parameter(torch.Tensor(embed_dim, self.kdim))
+            self.init_k_proj = False
+            if shared_k_proj_weight is not None:
+                self.k_proj_weight = Parameter(torch.Tensor(embed_dim, self.kdim))
+            else:
+                self.k_proj_weight = shared_k_proj_weight
+                self.init_k_proj = True
             self.v_proj_weight = Parameter(torch.Tensor(embed_dim, self.vdim))
             self.q_proj_weight = Parameter(torch.Tensor(embed_dim, embed_dim))
 
@@ -75,12 +79,6 @@ class MultiheadAttention(nn.Module):
         else:
             self.enable_torch_version = False
 
-        self.gaussian_prior_var = gaussion_prior_var
-        self.kernel_size = kernel_size
-        self.temperature_scale = temperature_scale
-        if kernel_size > 0:
-            self.constant = 1 / math.sqrt(2 * math.pi * gaussion_prior_var)
-
     def prepare_for_onnx_export_(self):
         self.onnx_trace = True
 
@@ -88,7 +86,8 @@ class MultiheadAttention(nn.Module):
         if self.qkv_same_dim:
             nn.init.xavier_uniform_(self.in_proj_weight)
         else:
-            nn.init.xavier_uniform_(self.k_proj_weight)
+            if not self.init_k_proj:
+                nn.init.xavier_uniform_(self.k_proj_weight)
             nn.init.xavier_uniform_(self.v_proj_weight)
             nn.init.xavier_uniform_(self.q_proj_weight)
 
@@ -276,23 +275,7 @@ class MultiheadAttention(nn.Module):
         if before_softmax:
             return attn_weights, v
 
-        if self.kernel_size > 0:
-            # better disable attention dropout
-            if cur_tgt_pos is not None:
-                a = torch.LongTensor([cur_tgt_pos]).to(query.device) / self.kernel_size
-            else:
-                a = torch.arange(tgt_len).to(query.device).long() / self.kernel_size
-            a = a.unsqueeze(1).expand(tgt_len, src_len)
-            b = torch.arange(src_len).to(query.device).long().unsqueeze(0)
-            prior = self.constant * torch.exp(-(torch.abs(a - b).float() ** 2 / (2 * self.gaussian_prior_var)))
-            prior = torch.softmax(prior * self.temperature_scale, dim=-1)
-
         attn_weights_float = utils.softmax(attn_weights, dim=-1, onnx_trace=self.onnx_trace)
-        if self.kernel_size > 0:
-            # attn_weights_float = (prior.unsqueeze(0) + attn_weights_float) / 2.
-            # todo: use an argument
-            attn_weights_float = prior.unsqueeze(0) * 0.2 + attn_weights_float * 0.8
-
         attn_weights = attn_weights_float.type_as(attn_weights)
         attn_probs = F.dropout(attn_weights_float.type_as(attn_weights), p=self.dropout, training=self.training)
 

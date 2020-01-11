@@ -12,7 +12,6 @@ from . import data_utils, FairseqDataset
 def collate(
     samples, pad_idx, eos_idx, ctx_pad_idx, left_pad_source=False, left_pad_target=False,
     input_feeding=True, input_form='cat', context_form='doc', context_compress=None,
-    quantitize=False,
 ):
     # quantitize means encode the codes with the original code book embeddings
     if len(samples) == 0:
@@ -44,7 +43,7 @@ def collate(
         src_tokens = None
         src_mask = None
         code_lengths = None
-        process_context = None
+        process_context = False
 
         if input_form == 'cat' and context_form == 'doc' and context_compress is None:
             context_lengths = torch.LongTensor([s['context'].numel() for s in samples])
@@ -58,25 +57,27 @@ def collate(
             context = merge_ctx(ctx_pad_idx)
             doc_lengths = torch.LongTensor([s[ctx_key].numel() for s in samples])
             code_lengths = compute_compressed_lengths(doc_lengths, context_compress)
-            process_context = 'compress_doc'
-            if quantitize:
-                process_context = 'quantitize_doc'
-        elif input_form == 'cat' and context_form == 'codes':
+            process_context = True
+        elif context_form == 'codes':
             # source = [pesudo codes; <bos>; sent], context = codes
             context = merge_ctx(-1)
             code_lengths = context.ne(-1).sum(1)
-            context[context.eq(-1)] = 0
-            if quantitize:
-                process_context = 'quantitize_code'
-        elif input_form == 'sep':
-            # source = sent, context = doc / codes
+            context[context.eq(-1)] = pad_idx
+        elif input_form == 'sep' and context_form != 'code' and context_compress is None:
+            # source = sent, context = doc / consecutive sentences
             src_tokens = merge('source', left_pad=left_pad_source)
             context = merge_ctx(ctx_pad_idx)
-            context_lengths = torch.LongTensor([s.numel() for s in samples])
+            context_lengths = torch.LongTensor([s[ctx_key].numel() for s in samples])
+        elif input_form == 'sep' and context_compress is not None:
+            src_tokens = merge('source', left_pad=left_pad_source)
+            context = merge_ctx(ctx_pad_idx)
+            doc_lengths = torch.LongTensor([s[ctx_key].numel() for s in samples])
+            context_lengths = compute_compressed_lengths(doc_lengths, context_compress).type_as(id)
+            process_context = True
         else:
             raise ValueError
 
-        if code_lengths is not None:
+        if code_lengths is not None and input_form == 'cat':
             context_lengths = code_lengths.type_as(id)
             # fill pesudo context with placeholder that is not pad_idx to avoid conflicts
             src_tokens = data_utils.collate_tokens(
@@ -123,6 +124,7 @@ def collate(
             'src_lengths': src_lengths,
             'src_mask': src_mask,
             'context': context,
+            'context_mask': None,
             'context_lengths': context_lengths
         },
         'target': target,
@@ -142,7 +144,7 @@ class ContextLanguagePairDataset(FairseqDataset):
     def __init__(
         self, ctx_dataset, langpair_dataset,
         input_form='cat', context_form='doc', context_compress=None, context_dict=None,
-        encode_code=False, shuffle=True
+        shuffle=True
     ):
         self.ctx_dataset = ctx_dataset
         self.langpair_dataset = langpair_dataset
@@ -154,7 +156,6 @@ class ContextLanguagePairDataset(FairseqDataset):
         self.context_compress = context_compress
 
         self.context_dict = context_dict
-        self.encode_code = encode_code
 
         self.shuffle = shuffle
 
@@ -212,7 +213,6 @@ class ContextLanguagePairDataset(FairseqDataset):
             left_pad_source=False, left_pad_target=False,
             input_feeding=True,
             input_form=self.input_form, context_form=self.context_form, context_compress=self.context_compress,
-            quantitize=self.encode_code
         )
 
     def num_tokens(self, index):

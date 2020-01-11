@@ -584,16 +584,10 @@ class Trainer(object):
                 code_mask, _, quantize_out, _, codes = self.task.ctx_model.forward_encoder(doc_input,
                                                                                  doc_lengths,
                                                                                  extrac_code_only=True)
-            if process == 'quantitize_doc':
-                sample['net_input']['context'] = quantize_out['encoder_out'].transpose(0, 1).to(device)  # T' x B x C -> B x T' x C
-            elif process == 'compress_doc':
                 context = codes['bottom_codes'].to(device)  # B x T'
-                context[context.eq(-1)] = 0
+                sample['net_input']['context_mask'] = context.eq(-1)
+                context[context.eq(-1)] = self.task.src_dict.pad()
                 sample['net_input']['context'] = context
-        elif process == 'quantitize_code':
-            with torch.no_grad():
-                sample['net_input']['context'] = self.task.ctx_model.quantization(sample['net_input']['context'].cuda(), code_mask=None,
-                                                                     extract_codes_only=True)['encoder_out'].transpose(0, 1).to(device)
         torch.cuda.empty_cache()
         return sample
 

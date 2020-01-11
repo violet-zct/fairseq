@@ -145,6 +145,9 @@ class TransformerDecoderLayer(nn.Module):
             self_attention=not self.cross_self_attention,
         )
         self.dropout = args.dropout
+        self.bi_context_attn = (args.input_form == 'sep')
+        self.share_key_proj = hasattr(args, 'sep_attn_share_key_proj', False)
+
         self.activation_fn = utils.get_activation_fn(
             activation=getattr(args, 'activation_fn', 'relu')
         )
@@ -164,14 +167,35 @@ class TransformerDecoderLayer(nn.Module):
             self.encoder_attn = None
             self.encoder_attn_layer_norm = None
         else:
-            self.encoder_attn = MultiheadAttention(
-                self.embed_dim,
-                args.decoder_attention_heads,
-                kdim=getattr(args, 'encoder_embed_dim', None),
-                vdim=getattr(args, 'encoder_embed_dim', None),
-                dropout=args.attention_dropout,
-                encoder_decoder_attention=True,
-            )
+            if not self.bi_context_attn:
+                self.encoder_attn = MultiheadAttention(
+                    self.embed_dim,
+                    args.decoder_attention_heads,
+                    kdim=getattr(args, 'encoder_embed_dim', None),
+                    vdim=getattr(args, 'encoder_embed_dim', None),
+                    dropout=args.attention_dropout,
+                    encoder_decoder_attention=True,
+                )
+            else:
+                self.encoder_attn = MultiheadAttention(
+                    self.embed_dim,
+                    args.decoder_attention_heads,
+                    kdim=getattr(args, 'encoder_embed_dim', None),
+                    vdim=getattr(args, 'encoder_embed_dim', None),
+                    dropout=args.attention_dropout,
+                    encoder_decoder_attention=True,
+                    qkv_same_dim=not self.share_key_proj,
+                )
+                self.aug_encoder_attn = MultiheadAttention(
+                    self.embed_dim,
+                    args.decoder_attention_heads,
+                    kdim=getattr(args, 'encoder_embed_dim', None),
+                    vdim=getattr(args, 'encoder_embed_dim', None),
+                    dropout=args.attention_dropout,
+                    encoder_decoder_attention=True,
+                    shared_k_proj_weight=self.encoder_attn.k_proj_weight if self.share_key_proj else None,
+                    qkv_same_dim=not self.share_key_proj,
+                )
             self.encoder_attn_layer_norm = LayerNorm(self.embed_dim, export=export)
 
         self.fc1 = Linear(self.embed_dim, args.decoder_ffn_embed_dim)
@@ -197,6 +221,8 @@ class TransformerDecoderLayer(nn.Module):
         self_attn_padding_mask=None,
         need_attn=False,
         need_head_weights=False,
+        bi_context=None,
+        bi_context_padding_mask=None,
     ):
         """
         Args:
@@ -271,6 +297,19 @@ class TransformerDecoderLayer(nn.Module):
                 need_weights=need_attn or (not self.training and self.need_attn),
                 need_head_weights=need_head_weights,
             )
+
+            if self.bi_context_attn:
+                bx, battn = self.aug_encoder_attn(
+                    query=x,
+                    key=bi_context,
+                    value=bi_context,
+                    key_padding_mask=bi_context_padding_mask,
+                    incremental_state=incremental_state,
+                    static_kv=True,
+                    need_weights=need_attn or (not self.training and self.need_attn),
+                    need_head_weights=need_head_weights,
+                )
+                x = x + bx
             x = F.dropout(x, p=self.dropout, training=self.training)
             x = residual + x
             x = self.maybe_layer_norm(self.encoder_attn_layer_norm, x, after=True)

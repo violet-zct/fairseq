@@ -132,6 +132,8 @@ class TransformerContextModel(FairseqEncoderDecoderModel):
                             help='perform cross+self-attention')
         parser.add_argument('--layer-wise-attention', default=False, action='store_true',
                             help='perform layer-wise attention (cross-attention or cross+self-attention)')
+
+        parser.add_argument('--sep-attn-share-key-proj', default=0, type=1)
         # fmt: on
 
     @classmethod
@@ -158,10 +160,16 @@ class TransformerContextModel(FairseqEncoderDecoderModel):
                 utils.load_embedding(embed_dict, dictionary, emb)
             return emb
 
-        if hasattr(args, 'codebook_size') and not args.encode_code:
-            code_embed_tokens = Embedding(args.codebook_size, args.encoder_embed_dim, 0)
-        else:
-            code_embed_tokens = None
+        if hasattr(args, 'codebook_size'):
+            if args.encode_code:
+                code_embed_tokens = Embedding(args.codebook_size, args.encoder_embed_dim, 0,
+                                              weight=task.ctx_model.bottom_quantizer.embed.transpose(0, 1))
+            else:
+                code_embed_tokens = Embedding(args.codebook_size, args.encoder_embed_dim, 0)
+            if args.fix_code_book:
+                code_embed_tokens.weight.requires_grad = False
+            else:
+                code_embed_tokens.weight.requires_grad = True
 
         if args.share_all_embeddings:
             if src_dict != tgt_dict:
@@ -189,7 +197,8 @@ class TransformerContextModel(FairseqEncoderDecoderModel):
         decoder = cls.build_decoder(args, tgt_dict, decoder_embed_tokens)
         return cls(encoder, decoder)
 
-    def forward(self, src_tokens, src_lengths, src_mask, context, context_lengths, prev_output_tokens, **kwargs):
+    def forward(self, src_tokens, src_lengths, src_mask=None, context=None, context_mask=None,
+                context_lengths=None, prev_output_tokens=None, **kwargs):
         """
         Run the forward pass for an encoder-decoder model.
 
@@ -213,7 +222,7 @@ class TransformerContextModel(FairseqEncoderDecoderModel):
                 - a dictionary with any model-specific outputs
         """
         encoder_out = self.encoder(src_tokens, src_lengths=src_lengths, src_mask=src_mask, context=context,
-                                   context_lengths=context_lengths, **kwargs)
+                                   context_lengths=context_lengths, context_mask=context_mask, **kwargs)
         decoder_out = self.decoder(prev_output_tokens, encoder_out=encoder_out, **kwargs)
         return decoder_out
 
@@ -273,7 +282,7 @@ class TransformerEncoderWithContext(TransformerEncoder):
             self.layer_norm = None
 
         self.code_embed_tokens = code_embed_tokens
-        # todo: only support `cat` for input_form now
+
         self.input_form = args.input_form
         self.context_form = args.context_form
         self.context_compress = args.context_compress
@@ -307,7 +316,20 @@ class TransformerEncoderWithContext(TransformerEncoder):
         x = F.dropout(x, p=self.dropout, training=self.training)
         return x, embed
 
-    def forward(self, src_tokens, src_lengths, src_mask, context, context_lengths, cls_input=None, return_all_hiddens=False):
+    def forward_embedding_sep(self, src_tokens, bi_context):
+        # embed tokens and positions
+        embed = self.embed_scale * self.embed_tokens(src_tokens)
+        bi_embed = self.embed_scale * self.code_embed_tokens(bi_context)
+
+        if self.embed_positions is not None:
+            x = embed + self.embed_positions(src_tokens)
+            y = bi_embed + self.embed_positions(bi_context)
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        y = F.dropout(y, p=self.dropout, training=self.training)
+        return x, embed, y
+
+    def forward(self, src_tokens, src_lengths, src_mask, context, context_lengths, context_task,
+                cls_input=None, return_all_hiddens=False):
         """
         Args:
             src_tokens (LongTensor): tokens in the source language of shape
@@ -333,14 +355,19 @@ class TransformerEncoderWithContext(TransformerEncoder):
         if self.layer_wise_attention:
             return_all_hiddens = True
 
-        assert (src_mask.sum(1).type_as(context_lengths) == context_lengths).all()
-        x, encoder_embedding = self.forward_embedding(src_tokens, src_mask, context)
+        if self.input_form == 'cat':
+            assert (src_mask.sum(1).type_as(context_lengths) == context_lengths).all()
+            x, encoder_embedding = self.forward_embedding(src_tokens, src_mask, context)
+            # compute padding mask
+            encoder_padding_mask = src_tokens.masked_fill(src_mask, self.padding_idx + 1).eq(self.padding_idx)
+        else:
+            x, encoder_embedding, context = self.forward_embedding_sep(src_tokens, context)
+            encoder_padding_mask = src_tokens.eq(self.padding_idx)
+            context = context.transpose(0, 1)
 
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
 
-        # compute padding mask
-        encoder_padding_mask = src_tokens.masked_fill(src_mask, self.padding_idx + 1).eq(self.padding_idx)
         if not encoder_padding_mask.any():
             encoder_padding_mask = None
 
@@ -357,16 +384,21 @@ class TransformerEncoderWithContext(TransformerEncoder):
             if return_all_hiddens:
                 encoder_states[-1] = x
 
-        return {
+        output = {
             'encoder_out': x,  # T x B x C
             'encoder_padding_mask': encoder_padding_mask,  # B x T
             'encoder_embedding': encoder_embedding,  # B x T x C
             'encoder_states': encoder_states,  # List[T x B x C]
         }
 
+        if self.input_form == 'sep':
+            output['bi_context'] = context
+            output['bi_context_padding_mask'] = context_task
+        return output
 
-def Embedding(num_embeddings, embedding_dim, padding_idx):
-    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
+
+def Embedding(num_embeddings, embedding_dim, padding_idx, weight=None):
+    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx, _weight=weight)
     nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
     nn.init.constant_(m.weight[padding_idx], 0)
     return m

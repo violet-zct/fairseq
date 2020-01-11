@@ -199,6 +199,7 @@ class DocumentTranslationTask(FairseqTask):
                             help='if not None, use external vqvae to compress the document or apply quantization on codes')
         parser.add_argument('--encode-code', type=int, default=0,
                             help='if 1, use the code book of the pretrained vqvae to encode the codes')
+        parser.add_argument('--fix-code-book', type=int, default=0)
         # fmt: on
 
     def __init__(self, args, src_dict, tgt_dict, ctx_dict, ctx_model):
@@ -324,8 +325,7 @@ class DocumentTranslationTask(FairseqTask):
         self.datasets[split] = ContextLanguagePairDataset(ctx_dataset, langpair_dataset, input_form=self.args.input_form,
                                                           context_form=self.args.context_form,
                                                           context_compress=context_compress,
-                                                          context_dict=self.ctx_dict,
-                                                          encode_code=self.args.encode_code)
+                                                          context_dict=self.ctx_dict)
 
     def build_dataset_for_inference(self, src_tokens, src_lengths):
         # this function is called in interactive.py and hub_utils.py
