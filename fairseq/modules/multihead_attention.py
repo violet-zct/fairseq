@@ -46,7 +46,7 @@ class MultiheadAttention(nn.Module):
             self.in_proj_weight = Parameter(torch.Tensor(3 * embed_dim, embed_dim))
         else:
             self.init_k_proj = False
-            if shared_k_proj_weight is not None:
+            if shared_k_proj_weight is None:
                 self.k_proj_weight = Parameter(torch.Tensor(embed_dim, self.kdim))
             else:
                 self.k_proj_weight = shared_k_proj_weight
