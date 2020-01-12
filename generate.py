@@ -17,25 +17,17 @@ def prepare_sample_with_context(task, sample):
     process = sample['process_context']
     device = sample['id'].device
     task.ctx_model.eval()
-    if 'doc' in process:
+    if process:
         doc_input = sample['net_input']['context'].cuda()
         doc_lengths = doc_input.ne(task.ctx_dict.pad()).sum(1).cuda()
         with torch.no_grad():
             code_mask, _, quantize_out, _, codes = task.ctx_model.forward_encoder(doc_input,
                                                                                        doc_lengths,
                                                                                        extrac_code_only=True)
-        if process == 'quantitize_doc':
-            sample['net_input']['context'] = quantize_out['encoder_out'].transpose(0, 1).to(
-                device)  # T' x B x C -> B x T' x C
-        elif process == 'compress_doc':
             context = codes['bottom_codes'].to(device)  # B x T'
-            context[context.eq(-1)] = 0
+            sample['net_input']['context_mask'] = context.eq(-1)
+            context[context.eq(-1)] = task.src_dict.pad()
             sample['net_input']['context'] = context
-    elif process == 'quantitize_code':
-        with torch.no_grad():
-            sample['net_input']['context'] = \
-            task.ctx_model.quantization(sample['net_input']['context'].cuda(), code_mask=None,
-                                             extract_codes_only=True)['encoder_out'].transpose(0, 1).to(device)
     torch.cuda.empty_cache()
     return sample
 
