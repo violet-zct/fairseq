@@ -55,8 +55,8 @@ class VQVAELanguageModelingTask(LanguageModelingTask):
                             help='max number of tokens in the target sequence')
         parser.add_argument('--use-context-dataset', type=int, default=0,
                             help='if true, use several consecutive sentences (window_size*2+1) as pretrain input')
-        parser.add_argument('--context_mode', type=str, default='window', choices=['doc', 'window'])
-        parser.add_argument('--window_size', type=int, default=3)
+        parser.add_argument('--context-mode', type=str, default='window', choices=['doc', 'window'])
+        parser.add_argument('--window-size', type=int, default=3)
         # fmt: on
 
     def extract_codes(self, sample, model):
