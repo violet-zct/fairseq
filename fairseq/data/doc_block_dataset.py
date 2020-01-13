@@ -108,8 +108,8 @@ class DocBlockDataset(FairseqDataset):
         self.window_size = window_size
 
         context_index, _sizes = self.rebuild_index()
-        self._context_index = plasma_utils.PlasmaArray(context_index)
-        self._sizes = plasma_utils.PlasmaArray(_sizes)
+        self._context_index = plasma_utils.PlasmaArray(np.array(context_index))
+        self._sizes = plasma_utils.PlasmaArray(np.array(_sizes))
 
     def rebuild_index(self):
         new_index = []
@@ -134,7 +134,7 @@ class DocBlockDataset(FairseqDataset):
             for doc_idx in range(len(self.slice_indices)):
                 start_ds_idx, start_offset, end_ds_idx = self.block_to_dataset_index[doc_idx]
                 for sidx in range(start_ds_idx, end_ds_idx + 1):
-                    new_index.append((doc_idx, min(start_ds_idx, sidx-self.window_size), max(end_ds_idx, sidx+self.window_size)))
+                    new_index.append((doc_idx, max(start_ds_idx, sidx-self.window_size), min(end_ds_idx, sidx+self.window_size)))
                     sizes.append(sum([len(self.dataset[ii]) for ii in range(new_index[-1][1], new_index[-1][2] + 1)]))
                     cur_new_idx += 1
                 if end_ds_idx < len(self.dataset)-1:

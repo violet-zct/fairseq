@@ -63,7 +63,7 @@ class VQVAELanguageModelingTask(LanguageModelingTask):
         model.eval()
         with torch.no_grad():
             tokens, lengths = sample['target'], sample['net_input']['src_lengths']
-            _, _, _, _, codes = model.forward_encoder(tokens, lengths) # B x T
+            _, _, _, _, codes = model.forward_encoder(tokens, lengths)  # B x T
             emb_inds = codes['bottom_codes']
         return emb_inds
 
