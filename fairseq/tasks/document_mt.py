@@ -194,7 +194,7 @@ class DocumentTranslationTask(FairseqTask):
         parser.add_argument('-c', '--context-suffix', type=str,
                             help='path to context: split.context-suffix')
         parser.add_argument('--input-form', type=str, choices=['cat', 'sep'], default='cat')
-        parser.add_argument('--context-form', type=str, choices=['doc', 'codes', 'sent'])
+        parser.add_argument('--context-form', type=str, choices=['doc', 'codes', 'sent', 'window'])
         parser.add_argument('--context-compress', type=str, default=None,
                             help='[format: 2,2,2], strides for conv layers in compression')
         parser.add_argument('--context-model-path', type=str, default=None,
