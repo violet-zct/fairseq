@@ -12,6 +12,7 @@ from fairseq.data import (
     data_utils,
     Dictionary,
     MonolingualDataset,
+    DocBlockDataset,
     TokenBlockDataset,
     TransformEosDataset,
     TruncatedDictionary,
@@ -23,15 +24,40 @@ from fairseq.tasks.language_modeling import LanguageModelingTask
 @register_task("VQVAE_language_modeling")
 class VQVAELanguageModelingTask(LanguageModelingTask):
 
-    # @staticmethod
-    # def add_args(parser):
-    #     """Add task-specific arguments to the parser."""
-    #     # fmt: off
-
-    def __init__(self, args, dictionary, output_dictionary=None, targets=None):
-        super().__init__(args, dictionary, output_dictionary, targets)
-        self.prefill = getattr(args, 'prefill', 1)
-        self.strides = list(map(int, args.bottom_conv_stride.split(',')))
+    def add_args(parser):
+        """Add task-specific arguments to the parser."""
+        # fmt: off
+        parser.add_argument('data', help='path to data directory')
+        parser.add_argument('--sample-break-mode', default='none',
+                            choices=['none', 'complete', 'complete_doc', 'eos'],
+                            help='If omitted or "none", fills each sample with tokens-per-sample '
+                                 'tokens. If set to "complete", splits samples only at the end '
+                                 'of sentence, but may include multiple sentences per sample. '
+                                 '"complete_doc" is similar but respects doc boundaries. '
+                                 'If set to "eos", includes only one sentence per sample.')
+        parser.add_argument('--tokens-per-sample', default=1024, type=int,
+                            help='max number of tokens per sample for LM dataset')
+        parser.add_argument('--lazy-load', action='store_true',
+                            help='load the dataset lazily')
+        parser.add_argument('--raw-text', default=False, action='store_true',
+                            help='load raw text dataset')
+        parser.add_argument('--output-dictionary-size', default=-1, type=int,
+                            help='limit the size of output dictionary')
+        parser.add_argument('--self-target', action='store_true',
+                            help='include self target')
+        parser.add_argument('--future-target', action='store_true',
+                            help='include future target')
+        parser.add_argument('--past-target', action='store_true',
+                            help='include past target')
+        parser.add_argument('--add-bos-token', action='store_true',
+                            help='prepend beginning of sentence token (<s>)')
+        parser.add_argument('--max-target-positions', type=int, metavar='N',
+                            help='max number of tokens in the target sequence')
+        parser.add_argument('--use-context-dataset', type=int, default=0,
+                            help='if true, use several consecutive sentences (window_size*2+1) as pretrain input')
+        parser.add_argument('--context_mode', type=str, default='window', choices=['doc', 'window'])
+        parser.add_argument('--window_size', type=int, default=3)
+        # fmt: on
 
     def extract_codes(self, sample, model):
         model.eval()
@@ -81,6 +107,7 @@ class VQVAELanguageModelingTask(LanguageModelingTask):
         Args:
             split (str): name of the split (e.g., train, valid, test)
         """
+        use_ctx_dataset = getattr(self.args, 'use_context_dataset', 0)
         paths = self.args.data.split(":")
         assert len(paths) > 0
 
@@ -95,15 +122,28 @@ class VQVAELanguageModelingTask(LanguageModelingTask):
                 "Dataset not found: {} ({})".format(split, split_path)
             )
 
-        dataset = TokenBlockDataset(
-            dataset,
-            dataset.sizes,
-            self.args.tokens_per_sample,
-            pad=self.dictionary.pad(),
-            eos=self.dictionary.eos(),
-            break_mode=self.args.sample_break_mode,
-            include_targets=True,
-        )
+        if use_ctx_dataset:
+            dataset = DocBlockDataset(
+                dataset,
+                dataset.sizes,
+                self.args.tokens_per_sample,
+                pad=self.dictionary.pad(),
+                eos=self.dictionary.eos(),
+                break_mode=self.args.sample_break_mode,
+                include_targets=True,
+                context_mode=self.args.context_mode,
+                window_size=self.args.window_size,
+            )
+        else:
+            dataset = TokenBlockDataset(
+                dataset,
+                dataset.sizes,
+                self.args.tokens_per_sample,
+                pad=self.dictionary.pad(),
+                eos=self.dictionary.eos(),
+                break_mode=self.args.sample_break_mode,
+                include_targets=True,
+            )
 
         add_eos_for_other_targets = (
             self.args.sample_break_mode is not None
@@ -119,36 +159,10 @@ class VQVAELanguageModelingTask(LanguageModelingTask):
             shuffle=True,
             targets=self.targets,
             add_bos_token=self.args.add_bos_token,
-            prefill=self.prefill,
-            strides=self.strides
         )
 
     def build_dataset_for_inference(self, src_tokens, src_lengths):
-        return TransformEosDataset(
-            MonolingualDataset(
-                TokenBlockDataset(
-                    src_tokens,
-                    src_lengths,
-                    block_size=None,
-                    pad=self.source_dictionary.pad(),
-                    eos=self.source_dictionary.eos(),
-                    break_mode="eos",
-                    include_targets=False,
-                ),
-                src_lengths,
-                self.source_dictionary,
-                self.target_dictionary,
-                add_eos_for_other_targets=False,
-                shuffle=False,
-                add_bos_token=self.args.add_bos_token,
-                prefill=self.prefill,
-                strides=self.strides,
-            ),
-            eos=self.source_dictionary.eos(),
-            # remove EOS since this will be used as a prefix for generation
-            remove_eos_from_src=True,
-            has_target=False,
-        )
+        raise NotImplementedError
 
     def inference_step(self, generator, models, sample, prefix_tokens=None):
         with torch.no_grad():

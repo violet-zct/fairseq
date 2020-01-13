@@ -11,6 +11,7 @@ from . import FairseqCriterion, register_criterion
 import torch
 import torch.nn.functional as F
 
+
 def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=True):
     if target.dim() == lprobs.dim() - 1:
         target = target.unsqueeze(-1)

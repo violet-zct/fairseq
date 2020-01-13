@@ -134,6 +134,7 @@ class TransformerContextModel(FairseqEncoderDecoderModel):
                             help='perform layer-wise attention (cross-attention or cross+self-attention)')
 
         parser.add_argument('--sep-attn-share-key-proj', default=0, type=int)
+        parser.add_argument('--use-seg-pos-emb', default=0, type=int)
         # fmt: on
 
     @classmethod
@@ -287,6 +288,11 @@ class TransformerEncoderWithContext(TransformerEncoder):
         self.context_form = args.context_form
         self.context_compress = args.context_compress
 
+        self.use_seg_pos_emb = getattr(args, 'use_seg_pos_emb', 0)
+        if self.use_seg_pos_emb:
+            self.seg_pad_idx = 2
+            self.seg_pos_emb = Embedding(2, embed_dim, padding_idx=self.seg_pad_idx)
+
     def forward_embedding(self, src_tokens, src_mask, context):
         # src_mask set all context tokens to be True
         # embed tokens and positions
@@ -316,17 +322,21 @@ class TransformerEncoderWithContext(TransformerEncoder):
         x = F.dropout(x, p=self.dropout, training=self.training)
         return x, embed
 
-    def forward_embedding_sep(self, src_tokens, bi_context):
+    def forward_embedding_sep(self, src_tokens, seg_pos=-1, mask=None):
         # embed tokens and positions
         embed = self.embed_scale * self.embed_tokens(src_tokens)
-        bi_embed = self.embed_scale * self.code_embed_tokens(bi_context)
-
         if self.embed_positions is not None:
             x = embed + self.embed_positions(src_tokens)
-            y = bi_embed + self.embed_positions(bi_context)
+        if self.use_seg_pos_emb:
+            if mask is None:
+                masked_src_tokens = src_tokens.masked_fill(src_tokens.ne(self.padding_idx), seg_pos)
+                masked_src_tokens = masked_src_tokens.masked_fill(src_tokens.eq(self.padding_idx), self.seg_pad_idx)
+            else:
+                masked_src_tokens = src_tokens.masked_fill(~mask, seg_pos)
+                masked_src_tokens = masked_src_tokens.masked_fill(mask, self.seg_pad_idx)
+            x = x + self.embed_scale * self.seg_pos_emb(masked_src_tokens)
         x = F.dropout(x, p=self.dropout, training=self.training)
-        y = F.dropout(y, p=self.dropout, training=self.training)
-        return x, embed, y
+        return x, embed
 
     def forward(self, src_tokens, src_lengths, src_mask, context, context_lengths, context_mask,
                 cls_input=None, return_all_hiddens=False):
@@ -361,7 +371,8 @@ class TransformerEncoderWithContext(TransformerEncoder):
             # compute padding mask
             encoder_padding_mask = src_tokens.masked_fill(src_mask, self.padding_idx + 1).eq(self.padding_idx)
         else:
-            x, encoder_embedding, context = self.forward_embedding_sep(src_tokens, context)
+            x, encoder_embedding = self.forward_embedding_sep(src_tokens, seg_pos=0)
+            context, _ = self.forward_embedding_sep(context, seg_pos=1, mask=context_mask)
             encoder_padding_mask = src_tokens.eq(self.padding_idx)
             context = context.transpose(0, 1)
 

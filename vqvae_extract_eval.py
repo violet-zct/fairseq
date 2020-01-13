@@ -51,7 +51,7 @@ def set_up_model(args, path, override_args=None):
         model_args.max_len_b = 80
 
     generator = task.build_generator(model_args)
-    return model, task, criterion, generator
+    return model, task, criterion, generator, model_args
 
 
 def compute_attn(m):
@@ -67,10 +67,10 @@ def main(args, override_args=None):
 
     use_cuda = torch.cuda.is_available() and not args.cpu
     eval_task = args.eval_task
-    model, task, criterion, generator = set_up_model(args, args.vqvae_path, override_args)
+    model, task, criterion, generator, model_args = set_up_model(args, args.vqvae_path, override_args)
     if eval_task == 'sampling':
         assert args.prior_path is not None
-        prior_model, prior_task, prior_criterion, prior_generator = set_up_model(args, args.prior_path, None)
+        prior_model, prior_task, prior_criterion, prior_generator, prior_args = set_up_model(args, args.prior_path, None)
 
     dictionary = task.dictionary
     if eval_task == 'code_extract':

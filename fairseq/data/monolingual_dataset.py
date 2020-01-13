@@ -9,13 +9,9 @@ import torch
 from . import data_utils, FairseqDataset
 
 
-def collate(samples, pad_idx, eos_idx, prefill=False, strides=None):
+def collate(samples, pad_idx, eos_idx):
     if len(samples) == 0:
         return {}
-
-    def compute_compressed_lengths(lengths):
-        lengths = (lengths - 1) // np.prod(strides) + 1
-        return lengths
 
     def merge(key, is_list=False):
         if is_list:
@@ -31,22 +27,9 @@ def collate(samples, pad_idx, eos_idx, prefill=False, strides=None):
             )
 
     src_tokens = merge('source')
-    tgt_mask = None
     if samples[0]['target'] is not None:
-        if not prefill:
-            is_target_list = isinstance(samples[0]['target'], list)
-            target = merge('target', is_target_list)
-        else:
-            # target is the full input, prepend pesudo tokens
-            doc_lengths = torch.LongTensor([s['target'].numel() for s in samples])
-            code_lengths = compute_compressed_lengths(doc_lengths)
-            # fill pesudo context with placeholder that is not pad_idx to avoid conflicts
-            target = data_utils.collate_tokens(
-                [torch.cat([s['target'][0].new(m.item()).fill_(-1), s['target']])
-                 for s, m in zip(samples, code_lengths)], pad_idx, left_pad=False, )
-            tgt_mask = torch.arange(target.size(1), device=target.device).type_as(target).expand(
-                len(target), target.size(1))
-            tgt_mask = tgt_mask < code_lengths.unsqueeze(1)
+        is_target_list = isinstance(samples[0]['target'], list)
+        target = merge('target', is_target_list)
     else:
         target = src_tokens
 
@@ -61,7 +44,6 @@ def collate(samples, pad_idx, eos_idx, prefill=False, strides=None):
             ]),
         },
         'target': target,
-        'target_mask': tgt_mask,
     }
 
 
@@ -78,7 +60,7 @@ class MonolingualDataset(FairseqDataset):
     """
 
     def __init__(self, dataset, sizes, src_vocab, tgt_vocab, add_eos_for_other_targets, shuffle,
-                 targets=None, add_bos_token=False, prefill=False, strides=None):
+                 targets=None, add_bos_token=False):
         self.dataset = dataset
         self.sizes = np.array(sizes)
         self.vocab = src_vocab
@@ -92,10 +74,6 @@ class MonolingualDataset(FairseqDataset):
         if targets is not None and len(targets) == 0:
             targets = None
         self.targets = targets
-
-        # the following two arguments are added, in case we need to create pesudo prepend tokens to an input
-        self.prefill = prefill
-        self.strides = strides
 
     def __getitem__(self, index):
         if self.targets is not None:
@@ -192,7 +170,7 @@ class MonolingualDataset(FairseqDataset):
                   target sentence of shape `(bsz, tgt_len)`. Padding will appear
                   on the right.
         """
-        return collate(samples, self.vocab.pad(), self.vocab.eos(), prefill=self.prefill, strides=self.strides)
+        return collate(samples, self.vocab.pad(), self.vocab.eos())
 
     def num_tokens(self, index):
         """Return the number of tokens in a sample. This value is used to

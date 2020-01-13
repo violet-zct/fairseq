@@ -76,45 +76,25 @@ class TransformerEncoder(FairseqEncoder):
         else:
             self.layer_norm = None
 
-    def forward_embedding(self, src_tokens):
+        self.use_seg_pos_emb = getattr(args, 'use_seg_pos_emb', 0)
+        if self.use_seg_pos_emb:
+            self.seg_pad_idx = 2
+            self.seg_pos_emb = Embedding(2, embed_dim, padding_idx=self.seg_pad_idx)
+
+    def forward_embedding(self, src_tokens, seg_pos=-1):
         # embed tokens and positions
         embed = self.embed_scale * self.embed_tokens(src_tokens)
         if self.embed_positions is not None:
             x = embed + self.embed_positions(src_tokens)
+        if self.use_seg_pos_emb:
+            masked_src_tokens = src_tokens.masked_fill(src_tokens.ne(self.padding_idx), seg_pos)
+            masked_src_tokens = masked_src_tokens.masked_fill(src_tokens.eq(self.padding_idx), self.seg_pad_idx)
+            x = x + self.embed_scale * self.seg_pos_emb(masked_src_tokens)
         x = F.dropout(x, p=self.dropout, training=self.training)
         return x, embed
 
-    # def forward_embedding_prefill(self, src_tokens, src_mask):
-    #     # src_mask set all context tokens to be True
-    #     # embed tokens and positions
-    #
-    #     sent_pos_input = src_tokens.masked_fill(src_mask, self.padding_idx)
-    #     sent_pos_emb = self.embed_positions(sent_pos_input)
-    #     ctx_pos_input = src_tokens.masked_fill(~src_mask, self.padding_idx)
-    #     ctx_pos_emb = self.embed_positions(ctx_pos_input)
-    #
-    #     sent_mask = src_mask.type_as(ctx_pos_emb).unsqueeze(-1)
-    #     context_mask = (~src_mask).type_as(ctx_pos_emb).unsqueeze(-1)
-    #     pos_emb = ctx_pos_emb * sent_mask + sent_pos_emb * context_mask
-    #
-    #     sent_embed = self.embed_scale * self.embed_tokens(src_tokens)
-    #     if not (self.context_form == 'doc' and self.context_compress is None):
-    #         # not plain concat of doc and sent, has compressed context
-    #         if context.dim() == 2:
-    #             context = self.embed_scale * self.code_embed_tokens(context)
-    #         diff = sent_embed.size(1) - context.size(1)
-    #         context = torch.cat([context, context.new_zeros((sent_embed.size(0), diff, sent_embed.size(-1)))], dim=1)
-    #
-    #         embed = context * sent_mask + sent_embed * context_mask
-    #     else:
-    #         embed = sent_embed
-    #
-    #     x = embed + pos_emb
-    #     x = F.dropout(x, p=self.dropout, training=self.training)
-    #     return x, embed
-
     def forward(self, src_tokens=None, cls_input=None, return_all_hiddens=False, src_encodings=None,
-                encoder_padding_mask=None, attn_mask=None, prefill_mask=None):
+                encoder_padding_mask=None, attn_mask=None, auxilary_tokens=None):
         """
         Args:
             src_tokens (LongTensor): tokens in the source language of shape
@@ -140,15 +120,14 @@ class TransformerEncoder(FairseqEncoder):
             return_all_hiddens = True
 
         if self.embed_tokens is not None:
-            # x, encoder_embedding = self.forward_embedding(src_tokens)
-            # aug_x, _ = self.forward_embedding(auxilary_tokens)
-            # x = torch.cat([x, aug_x], dim=1)
-            # # B x T x C -> T x B x C
-            # x = x.transpose(0, 1)
-            # src_tokens = torch.cat([src_tokens, auxilary_tokens], dim=1)
-            # # compute padding mask
-            # encoder_padding_mask = (src_tokens.eq(self.padding_idx) | src_tokens.eq(self.dictionary.bos_index))
-            pass
+            x, encoder_embedding = self.forward_embedding(src_tokens, seg_pos=0)
+            aug_x, _ = self.forward_embedding(auxilary_tokens, seg_pos=1)
+            x = torch.cat([x, aug_x], dim=1)
+            # B x T x C -> T x B x C
+            x = x.transpose(0, 1)
+            src_tokens = torch.cat([src_tokens, auxilary_tokens], dim=1)
+            # compute padding mask
+            encoder_padding_mask = (src_tokens.eq(self.padding_idx) | src_tokens.eq(self.dictionary.bos_index))
         else:
             assert encoder_padding_mask is not None
             src_tokens = encoder_padding_mask.long()

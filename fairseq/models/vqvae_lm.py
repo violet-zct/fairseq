@@ -341,10 +341,8 @@ class VQVAE(FairseqLanguageModel):
         parser.add_argument('--aug-loss', default=None, choices=['deconv_predict', 'code_bow'])
         parser.add_argument('--aug-loss-weight', default=0.2, type=float)
         parser.add_argument('--share-aug-softmax-with-emb', default=0, type=int)
-        # fmt: ont
 
-        # prepend placeholder
-        parser.add_argument('--prefill', default=0, type=int)
+        parser.add_argument('--use-seg-pos-emb', default=0, type=int)
 
     @classmethod
     def build_model(cls, args, task):
@@ -529,10 +527,11 @@ class VQVAE(FairseqLanguageModel):
         mask = torch.arange(max_length, device=lengths.device).type_as(lengths).expand(len(lengths), max_length)
         mask = mask < append_lengths.unsqueeze(1)  # B x L
         aug_tokens = src_tokens.new_ones((src_tokens.size(0), max_length)).fill_(self.text_encoder.dictionary.bos_index)
+        aug_tokens = aug_tokens.masked_fill(~mask, self.text_encoder.dictionary.pad_index)
         return aug_tokens, mask
 
-    def forward(self, decoder_tokens, lengths, full_tokens, update_steps, prefill_mask=None, **kwargs):
-        mask, diff, quantize_out, quantize_stats, codes = self.forward_encoder(full_tokens, lengths, update_steps, prefill_mask)
+    def forward(self, decoder_tokens, lengths, full_tokens, update_steps, **kwargs):
+        mask, diff, quantize_out, quantize_stats, codes = self.forward_encoder(full_tokens, lengths, update_steps)
         if self.training and self.word_drop_rate > 0.0:
             decoder_tokens = self.spacing_mask_words(decoder_tokens, lengths)
             # decoder_tokens = self.mask_words(decoder_tokens, lengths)
@@ -543,7 +542,7 @@ class VQVAE(FairseqLanguageModel):
         # todo: prior model - one decoder, one encoder-decoder
         # todo: hierarchical model
 
-    def forward_encoder(self, full_tokens, lengths, update_steps=-1, prefill_mask=None, extrac_code_only=False):
+    def forward_encoder(self, full_tokens, lengths, update_steps=-1, extrac_code_only=False):
         """
                 output of text encoder
                 {
@@ -578,10 +577,8 @@ class VQVAE(FairseqLanguageModel):
                     full_tokens = torch.cat([full_tokens, full_tokens.new_full((full_tokens.size(0), pad_num), self.pad_index)], dim=1)
             text_conv_out, mask = self.text_encoder(full_tokens, lengths, pad_num)
         elif self.encoder_form == 'append':
-            code_len = prefill_mask.sum(1).max().item()
-            print(full_tokens[0][0])
-            mask = prefill_mask.eq(full_tokens[0][0])[:, :code_len]
-            text_encoder_out = self.text_encoder(full_tokens, prefill_mask)
+            aug_tokens, mask = self.create_aug_input(full_tokens, lengths)
+            text_encoder_out = self.text_encoder(full_tokens, auxilary_tokens=aug_tokens)
             text_conv_out = text_encoder_out['encoder_out'][full_tokens.size(1):, :, :]  # T' x B x C
         else:
             raise NotImplementedError

@@ -14,7 +14,7 @@ from fairseq.data import (
     LanguagePairDataset,
     PrependTokenDataset,
     MonolingualDataset,
-    TokenBlockDataset,
+    DocBlockDataset,
     TransformEosDataset,
     TruncatedDictionary,
     RawLabelDataset,
@@ -176,6 +176,8 @@ class DocumentTranslationTask(FairseqTask):
                             help='target language')
         parser.add_argument('--lazy-load', action='store_true',
                             help='load the dataset lazily')
+        parser.add_argument('--tokens-per-sample', default=1024, type=int,
+                            help='max number of tokens per sample for LM dataset')
         parser.add_argument('--raw-text', action='store_true',
                             help='load raw text dataset')
         parser.add_argument('--left-pad-source', default='False', type=str, metavar='BOOL',
@@ -200,6 +202,7 @@ class DocumentTranslationTask(FairseqTask):
         parser.add_argument('--encode-code', type=int, default=0,
                             help='if 1, use the code book of the pretrained vqvae to encode the codes')
         parser.add_argument('--fix-code-book', type=int, default=0)
+        parser.add_argument('--window_size', type=int, default=3)
         # fmt: on
 
     def __init__(self, args, src_dict, tgt_dict, ctx_dict, ctx_model):
@@ -281,15 +284,14 @@ class DocumentTranslationTask(FairseqTask):
             prepend_bos=(self.args.input_form == 'cat'),
         )
 
-        index_list = [int(x) for x in open(os.path.join(data_path, split + '.' + self.args.source_lang + '.doc.id')).readlines()]
-
         ctx_path = os.path.join(data_path, split + '.' + self.args.context_suffix)
         if self.args.context_form == 'codes':
-            ctx_dataset = RawLabelDataset([torch.IntTensor(map(int, line.strip().split())) for line in open(ctx_path).readlines()])
-            ctx_dataset = ReferenceDataset(ctx_dataset, index_list, sizes=ctx_dataset.sizes)
+            # ctx_dataset = RawLabelDataset([torch.IntTensor(map(int, line.strip().split())) for line in open(ctx_path).readlines()])
+            # ctx_dataset = ReferenceDataset(ctx_dataset, index_list, sizes=ctx_dataset.sizes)
+            raise NotImplementedError
         elif self.args.context_form == 'sent':
             ctx_dataset = langpair_dataset.src
-        elif self.args.context_form == 'doc':
+        elif self.args.context_form == 'doc' or self.args.context_form == 'window':
             ctx_dataset = data_utils.load_indexed_dataset(
                 ctx_path, self.ctx_dict, self.args.dataset_impl, combine=False)  # in fact, the binary datasets doesn't need the dict
             if ctx_dataset is None:
@@ -297,28 +299,30 @@ class DocumentTranslationTask(FairseqTask):
                     "Dataset not found: {}".format(os.path.join(data_path, ctx_path))
                 )
 
-            dataset = TokenBlockDataset(
+            dataset = DocBlockDataset(
                 ctx_dataset,
                 ctx_dataset.sizes,
-                block_size=13000,  # set a large enough number
-                pad=self.ctx_dict.pad(),
-                eos=self.ctx_dict.eos(),
+                self.args.tokens_per_sample,
+                pad=self.dictionary.pad(),
+                eos=self.dictionary.eos(),
                 break_mode='complete_doc',
                 include_targets=False,
+                context_mode=self.args.context_form,
+                window_size=self.args.window_size,
             )
             print("| Loaded {} documents/context!".format(len(dataset)))
+            assert len(dataset) == len(ctx_dataset)
             # return {'id': index, 'source': source, 'target': target}: target = None
             ctx_dataset = MonolingualDataset(
                 dataset,
                 dataset.sizes,
-                self.src_dict,
-                self.src_dict,
+                self.ctx_dict,
+                self.ctx_dict,
                 add_eos_for_other_targets=False,
-                shuffle=False,  # it doesn't make sense, because ordered_indices will be called from the most top dataset - context_langpar_dataset
-                targets=None,   # we just need the full context of the source
+                shuffle=False,
+                targets=None,
                 add_bos_token=False,
             )
-            ctx_dataset = ReferenceDataset(ctx_dataset, index_list, dataset.sizes, context_compress)
         else:
             raise ValueError
 

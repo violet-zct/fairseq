@@ -45,7 +45,7 @@ def collate(
         code_lengths = None
         process_context = False
 
-        if input_form == 'cat' and context_form == 'doc' and context_compress is None:
+        if input_form == 'cat' and context_form != 'code' and context_compress is None:
             context_lengths = torch.LongTensor([s['context'].numel() for s in samples])
             # source = [original doc; <bos>; sent], no context, because they share vocab
             src_tokens = data_utils.collate_tokens([torch.cat([s[ctx_key], s[sent_key]]) for s in samples], pad_idx, left_pad=False,)
