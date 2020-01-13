@@ -324,7 +324,10 @@ class TransformerEncoderWithContext(TransformerEncoder):
 
     def forward_embedding_sep(self, src_tokens, seg_pos=-1, mask=None):
         # embed tokens and positions
-        embed = self.embed_scale * self.embed_tokens(src_tokens)
+        if seg_pos == 0:
+            embed = self.embed_scale * self.embed_tokens(src_tokens)
+        else:
+            embed = self.embed_scale * self.code_embed_tokens(src_tokens)
         if self.embed_positions is not None:
             x = embed + self.embed_positions(src_tokens)
         if self.use_seg_pos_emb:
