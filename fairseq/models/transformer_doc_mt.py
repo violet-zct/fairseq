@@ -135,6 +135,7 @@ class TransformerContextModel(FairseqEncoderDecoderModel):
 
         parser.add_argument('--sep-attn-share-key-proj', default=0, type=int)
         parser.add_argument('--use-seg-pos-emb', default=0, type=int)
+        parser.add_argument('--ctx-value-weight', default=0.5, type=float)
         # fmt: on
 
     @classmethod

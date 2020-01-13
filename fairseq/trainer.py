@@ -575,9 +575,9 @@ class Trainer(object):
 
     def _prepare_sample_with_context(self, sample):
         process = sample['process_context']
-        device = sample['id'].device
-        self.task.ctx_model.eval()
         if process:
+            device = sample['id'].device
+            self.task.ctx_model.eval()
             doc_input = sample['net_input']['context'].cuda()
             doc_lengths = doc_input.ne(self.task.ctx_dict.pad()).sum(1).cuda()
             with torch.no_grad():

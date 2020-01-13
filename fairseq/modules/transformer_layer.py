@@ -197,6 +197,7 @@ class TransformerDecoderLayer(nn.Module):
                     shared_k_proj_weight=self.encoder_attn.k_proj_weight if self.share_key_proj else None,
                     qkv_same_dim=not self.share_key_proj,
                 )
+                self.context_value_weight = getattr(args, 'ctx_value_weight', 0.5)
             self.encoder_attn_layer_norm = LayerNorm(self.embed_dim, export=export)
 
         self.fc1 = Linear(self.embed_dim, args.decoder_ffn_embed_dim)
@@ -310,7 +311,7 @@ class TransformerDecoderLayer(nn.Module):
                     need_weights=need_attn or (not self.training and self.need_attn),
                     need_head_weights=need_head_weights,
                 )
-                x = x + bx
+                x = (1. - self.context_value_weight) * x + self.context_value_weight * bx
             x = F.dropout(x, p=self.dropout, training=self.training)
             x = residual + x
             x = self.maybe_layer_norm(self.encoder_attn_layer_norm, x, after=True)
