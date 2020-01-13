@@ -311,7 +311,7 @@ class DocumentTranslationTask(FairseqTask):
                 window_size=self.args.window_size,
             )
             print("| Loaded {} documents/context!".format(len(dataset)))
-            assert len(dataset) == len(ctx_dataset)
+            assert len(dataset) == len(langpair_dataset.src)
             # return {'id': index, 'source': source, 'target': target}: target = None
             ctx_dataset = MonolingualDataset(
                 dataset,
