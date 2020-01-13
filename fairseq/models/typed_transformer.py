@@ -79,7 +79,7 @@ class TransformerEncoder(FairseqEncoder):
         self.use_seg_pos_emb = getattr(args, 'use_seg_pos_emb', 0)
         if self.use_seg_pos_emb:
             self.seg_pad_idx = 2
-            self.seg_pos_emb = Embedding(2, embed_dim, padding_idx=self.seg_pad_idx)
+            self.seg_pos_emb = Embedding(3, embed_dim, padding_idx=self.seg_pad_idx)
 
     def forward_embedding(self, src_tokens, seg_pos=-1):
         # embed tokens and positions
