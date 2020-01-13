@@ -172,6 +172,8 @@ class TransformerContextModel(FairseqEncoderDecoderModel):
                 code_embed_tokens.weight.requires_grad = False
             else:
                 code_embed_tokens.weight.requires_grad = True
+        else:
+            code_embed_tokens = None
 
         if args.share_all_embeddings:
             if src_dict != tgt_dict:
