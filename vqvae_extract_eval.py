@@ -101,7 +101,7 @@ def main(args, override_args=None):
         # Load valid dataset (we load training data below, based on the latest checkpoint)
         for subset in args.valid_subset.split(','):
             try:
-                task.load_dataset(subset, combine=False, epoch=0)
+                task.load_dataset(subset, combine=False, epoch=args.shard_id)
                 dataset = task.dataset(subset)
             except KeyError:
                 raise Exception('Cannot find dataset: ' + subset)
@@ -111,7 +111,10 @@ def main(args, override_args=None):
                 dataset=dataset,
                 max_tokens=args.max_tokens,
                 max_sentences=args.max_sentences,
-                max_positions=1e5,
+                max_positions=utils.resolve_max_positions(
+                model.task.max_positions(),
+                model.max_positions(),
+                ),
                 ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
                 required_batch_size_multiple=args.required_batch_size_multiple,
                 seed=args.seed,

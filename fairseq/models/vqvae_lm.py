@@ -341,8 +341,8 @@ class VQVAE(FairseqLanguageModel):
         parser.add_argument('--aug-loss', default=None, choices=['deconv_predict', 'code_bow'])
         parser.add_argument('--aug-loss-weight', default=0.2, type=float)
         parser.add_argument('--share-aug-softmax-with-emb', default=0, type=int)
-
-        parser.add_argument('--use-seg-pos-emb', default=0, type=int)
+        parser.add_argument('--use-seg-pos-emb', default=0, type=int,
+                            help='used when encoder form is append')
 
     @classmethod
     def build_model(cls, args, task):
@@ -423,9 +423,11 @@ class VQVAE(FairseqLanguageModel):
             text_conv_encoder = ConvEncoder(args.encoder_embed_dim, kernels, strides, args.bottom_latent_dim)
         elif args.encoder_form == 'conv':
             if isinstance(kernels[0], int):
+                # kernels are the same
                 text_encoder = SingleKernelFullConvEncoder(args, args.encoder_embed_dim, kernels, strides, args.bottom_latent_dim,
                                            embed_tokens, src_dict)
             else:
+                # multiple-kernels in one layer
                 text_encoder = FullConvEncoder(args, args.encoder_embed_dim, kernels, strides, args.bottom_latent_dim,
                                            embed_tokens, src_dict)
             if args.use_deconv:

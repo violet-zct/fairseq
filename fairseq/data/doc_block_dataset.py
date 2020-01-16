@@ -130,7 +130,7 @@ class DocBlockDataset(FairseqDataset):
                     sizes.append(sum([len(self.dataset[ii]) for ii in range(true_start_idx, end_ds_idx+1)]))
                     cur_new_idx += 1
         elif self.context_mode == 'window':
-            # in this, we read each document is a complete one without breaking in the middle
+            # in this, we read each document is a complete one without breaking in the middle, set tokens-per-samples to be a large number
             for doc_idx in range(len(self.slice_indices)):
                 start_ds_idx, start_offset, end_ds_idx = self.block_to_dataset_index[doc_idx]
                 for sidx in range(start_ds_idx, end_ds_idx + 1):

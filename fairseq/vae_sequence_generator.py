@@ -125,6 +125,7 @@ class VAESequenceGenerator(object):
         bos_token=None,
         **kwargs
     ):
+        min_len = self.min_len
         if not self.retain_dropout:
             model.eval()
 
@@ -155,9 +156,11 @@ class VAESequenceGenerator(object):
             if model.models[0].args.use_deconv:
                 max_len = min(encoder_outs[0]['encoder_out'].size(1) - 1,
                               model.max_decoder_positions() - 1,)
+                min_len = max_len
             else:
                 max_len = min(encoder_outs[0]['encoder_out'].size(0) * model.models[0].shrink_ratio - 1,
                               model.max_decoder_positions() - 1,)
+                min_len = 1
             # max_len = min(
             #     int(self.max_len_a * src_len + self.max_len_b),
             #     # exclude the EOS marker
@@ -315,7 +318,7 @@ class VAESequenceGenerator(object):
             if step >= max_len:
                 lprobs[:, :self.eos] = -math.inf
                 lprobs[:, self.eos + 1:] = -math.inf
-            elif step < self.min_len:
+            elif step < min_len:
                 lprobs[:, self.eos] = -math.inf
 
             # handle prefix tokens (possibly with different lengths)
