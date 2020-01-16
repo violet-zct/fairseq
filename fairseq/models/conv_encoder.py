@@ -61,6 +61,9 @@ class ConvBlock(nn.Module):
         self.stride = stride
         if output_channel is None:
             output_channel = input_channel
+
+        self.conv0 = nn.Conv1d(input_channel, output_channel, kernel_size=kernel, padding=kernel//2)
+        self.bn0 = nn.BatchNorm1d(output_channel)
         self.conv1 = nn.Conv1d(input_channel, output_channel, kernel_size=kernel, padding=kernel//2, stride=stride)
         self.bn1 = nn.BatchNorm1d(output_channel)
         self.conv2 = nn.Conv1d(input_channel, output_channel, kernel_size=kernel, padding=kernel//2)
@@ -75,7 +78,11 @@ class ConvBlock(nn.Module):
         residual = self.downsample(x)
         mask = new_mask.type_as(residual)
 
-        out = self.conv1(x)
+        out = self.conv0(x)
+        out = self.bn0(out)
+        out = F.relu(out)
+
+        out = self.conv1(out)
         out = self.bn1(out)
         out = F.relu(out)
 
@@ -178,6 +185,7 @@ class FullConvEncoder(FairseqEncoder):
 
 
 class SingleKernelFullConvEncoder(FairseqEncoder):
+    # kernel is the same
     def __init__(self, args, input_channel, kernels, strides, latent_dim, embed_tokens, dictionary):
         super().__init__(dictionary)
         # input_channel = embed_dim
