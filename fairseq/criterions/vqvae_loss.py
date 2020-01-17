@@ -156,15 +156,13 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             'sample_size': sample_size,
         }
 
-        if 'word_nll_loss' in logging_outputs[0]:
-            results['word_nll_loss'] = sum(log.get('word_nll_loss', 0) for log in logging_outputs) / ntokens / math.log(2) if ntokens > 0 else 0.
+        results['word_nll_loss'] = sum(log.get('word_nll_loss', 0) for log in logging_outputs) / ntokens / math.log(2) if ntokens > 0 else 0.
+        codes = sum(log.get('unique_codes', 0) for log in logging_outputs) / len(logging_outputs)
+        results['unique_codes'] = codes
 
-        if 'unique_codes' in logging_outputs[0]:
-            codes = sum(log.get('unique_codes', 0) for log in logging_outputs) / len(logging_outputs)
-            results['unique_codes'] = codes
-
-        for k in logging_outputs[0].keys():
-            if k not in results:
-                results[k] = sum(log.get(k, 0) for log in logging_outputs) / len(logging_outputs)
+        if len(logging_outputs) > 0:
+            for k in logging_outputs[0].keys():
+                if k not in results:
+                    results[k] = sum(log.get(k, 0) for log in logging_outputs) / len(logging_outputs)
 
         return results
