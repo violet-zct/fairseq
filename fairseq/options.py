@@ -50,7 +50,7 @@ def get_eval_lm_parser(default_task='language_modeling'):
 
 def get_eval_vqvae_parser(default_task=None):
     parser = get_parser('Evaluate (or extract codes) VQVAE Model', default_task)
-    add_dataset_args(parser, train=True)
+    add_dataset_args(parser, gen=True)
     add_generation_args(parser)
     add_eval_vqvae_args(parser)
     return parser

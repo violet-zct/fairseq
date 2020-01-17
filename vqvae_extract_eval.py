@@ -74,7 +74,7 @@ def main(args, override_args=None):
 
     dictionary = task.dictionary
     if eval_task == 'code_extract':
-        fopt = io.open(os.path.join(args.results_path, args.valid_subset + ".codes"), "w", encoding='utf-8')
+        fopt = io.open(os.path.join(args.results_path, args.gen_subset + ".codes"), "w", encoding='utf-8')
     elif eval_task == 'reconstruct':
         if args.sampling:
             prefix = ".sample"
@@ -82,14 +82,14 @@ def main(args, override_args=None):
             prefix = ".bs"
         if args.prefix_num > 0:
             prefix = prefix + ".prefix_{}".format(args.prefix_num)
-        fopt = io.open(os.path.join(args.results_path, args.valid_subset + prefix + ".reconstruction"), "w", encoding='utf-8')
+        fopt = io.open(os.path.join(args.results_path, args.gen_subset + prefix + ".reconstruction"), "w", encoding='utf-8')
         # Generate and compute BLEU score
         if args.sacrebleu:
             scorer = bleu.SacrebleuScorer()
         else:
             scorer = bleu.Scorer(dictionary.pad(), dictionary.eos(), dictionary.unk())
     elif eval_task == 'sampling':
-        fopt = io.open(os.path.join(args.results_path, args.valid_subset + ".samples"), "w", encoding='utf-8')
+        fopt = io.open(os.path.join(args.results_path, args.gen_subset + ".samples"), "w", encoding='utf-8')
     else:
         raise ValueError
 
@@ -99,7 +99,7 @@ def main(args, override_args=None):
     generate_id = 0
     if eval_task != 'sampling':
         # Load valid dataset (we load training data below, based on the latest checkpoint)
-        for subset in args.valid_subset.split(','):
+        for subset in args.gen_subset.split(','):
             try:
                 task.load_dataset(subset, combine=False, epoch=args.shard_id)
                 dataset = task.dataset(subset)
@@ -137,7 +137,7 @@ def main(args, override_args=None):
 
                 if eval_task == 'code_extract':
                     codes = task.extract_codes(sample, model)
-                    if args.valid_subset == 'valid':
+                    if args.gen_subset == 'valid':
                         all_codes.update(torch.unique(codes).tolist())
                     codes = codes.cpu().numpy()
                 elif eval_task == 'reconstruct':
@@ -204,7 +204,7 @@ def main(args, override_args=None):
         if eval_task == 'reconstruct':
             print('| Reconstructed {} sentences ({} tokens) in {:.1f}s ({:.2f} sentences/s, {:.2f} tokens/s)'.format(
                 num_sentences, gen_timer.n, gen_timer.sum, num_sentences / gen_timer.sum, 1. / gen_timer.avg))
-            print('| Reconstruct {} with beam={}: {}'.format(args.valid_subset, args.beam, scorer.result_string()))
+            print('| Reconstruct {} with beam={}: {}'.format(args.gen_subset, args.beam, scorer.result_string()))
     else:
         batch_size = 3072 // args.max_len_b
         gen_epochs = args.num_samples // batch_size
