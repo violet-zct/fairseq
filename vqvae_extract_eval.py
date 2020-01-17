@@ -272,8 +272,3 @@ def cli_main():
 
 if __name__ == '__main__':
     cli_main()
-
-#                 max_positions=utils.resolve_max_positions(
-#                     task.max_positions(),
-#                     model.max_positions(),
-#                 ),

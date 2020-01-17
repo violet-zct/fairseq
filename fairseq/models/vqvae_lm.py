@@ -343,6 +343,7 @@ class VQVAE(FairseqLanguageModel):
         parser.add_argument('--share-aug-softmax-with-emb', default=0, type=int)
         parser.add_argument('--use-seg-pos-emb', default=0, type=int,
                             help='used when encoder form is append')
+        parser.add_argument('--use-stride-first', default=1, type=int)
 
     @classmethod
     def build_model(cls, args, task):

@@ -56,14 +56,17 @@ class ConvEncoder(nn.Module):
 
 
 class ConvBlock(nn.Module):
-    def __init__(self, input_channel, kernel, stride, output_channel=None):
+    def __init__(self, input_channel, kernel, stride, output_channel=None, use_stride_first=True):
         super().__init__()
         self.stride = stride
         if output_channel is None:
             output_channel = input_channel
 
-        self.conv0 = nn.Conv1d(input_channel, output_channel, kernel_size=kernel, padding=kernel//2)
-        self.bn0 = nn.BatchNorm1d(output_channel)
+        self.use_stride_first = use_stride_first
+
+        if not use_stride_first:
+            self.conv0 = nn.Conv1d(input_channel, output_channel, kernel_size=kernel, padding=kernel//2)
+            self.bn0 = nn.BatchNorm1d(output_channel)
         self.conv1 = nn.Conv1d(input_channel, output_channel, kernel_size=kernel, padding=kernel//2, stride=stride)
         self.bn1 = nn.BatchNorm1d(output_channel)
         self.conv2 = nn.Conv1d(input_channel, output_channel, kernel_size=kernel, padding=kernel//2)
@@ -78,20 +81,32 @@ class ConvBlock(nn.Module):
         residual = self.downsample(x)
         mask = new_mask.type_as(residual)
 
-        out = self.conv0(x)
-        out = self.bn0(out)
-        out = F.relu(out)
+        if self.use_stride_first:
+            out = self.conv1(x)
+            out = self.bn1(out)
+            out = F.relu(out)
 
-        out = self.conv1(out)
-        out = self.bn1(out)
-        out = F.relu(out)
+            out = out * mask.unsqueeze(1)
+            out = self.conv2(out)
+            out = self.bn2(out)
 
-        out = out * mask.unsqueeze(1)
-        out = self.conv2(out)
-        out = self.bn2(out)
+            out = out + residual
+            out = F.relu(out)
+        else:
+            out = self.conv0(x)
+            out = self.bn0(out)
+            out = F.relu(out)
 
-        out = out + residual
-        out = F.relu(out)
+            out = self.conv1(out)
+            out = self.bn1(out)
+            out = F.relu(out)
+
+            out = out * mask.unsqueeze(1)
+            out = self.conv2(out)
+            out = self.bn2(out)
+
+            out = out + residual
+            out = F.relu(out)
 
         out = out * mask.unsqueeze(1)
         return out, new_length, new_mask, new_padded_length
@@ -202,7 +217,7 @@ class SingleKernelFullConvEncoder(FairseqEncoder):
             strides.extend([1, 1])
 
         self.conv_blocks = nn.ModuleList([])
-        self.conv_blocks.extend([ConvBlock(input_channel, k, s)
+        self.conv_blocks.extend([ConvBlock(input_channel, k, s, use_stride_first=getattr(args, 'use_stride_first', True))
                                  for k, s in zip(kernels, strides)])
         self.quant_conv = nn.Conv1d(input_channel, latent_dim, 1)
         self.dropout = args.dropout
