@@ -112,7 +112,7 @@ def main(args, override_args=None):
                 max_tokens=args.max_tokens,
                 max_sentences=args.max_sentences,
                 max_positions=utils.resolve_max_positions(
-                model.task.max_positions(),
+                task.max_positions(),
                 model.max_positions(),
                 ),
                 ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
