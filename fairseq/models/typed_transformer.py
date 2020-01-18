@@ -228,21 +228,25 @@ class TransformerDecoder(FairseqIncrementalDecoder):
 
     def __init__(self, args, dictionary, embed_tokens, decoder_embed_dim, decoder_attention_heads,
                  decoder_ffn_embed_dim, decoder_output_dim, max_target_positions, decoder_layers,
-                 encoder_embed_dim=-1, no_encoder_attn=False,):
+                 encoder_embed_dim=-1, no_encoder_attn=False, dict_size=-1):
         super().__init__(dictionary)
         self.register_buffer('version', torch.Tensor([3]))
 
         self.dropout = args.dropout
         self.share_input_output_embed = args.share_decoder_input_output_embed
 
-        input_embed_dim = embed_tokens.embedding_dim
+        if dict_size != -1:
+            input_embed_dim = decoder_embed_dim
+            self.padding_idx = dict_size
+            self.embed_tokens = nn.Embedding(dict_size, input_embed_dim, padding_idx=self.padding_idx, _weight=embed_tokens)
+        else:
+            input_embed_dim = embed_tokens.embedding_dim
+            self.padding_idx = embed_tokens.padding_idx
+            self.embed_tokens = embed_tokens
+
         embed_dim = decoder_embed_dim
         self.output_embed_dim = decoder_output_dim
-
-        self.padding_idx = embed_tokens.padding_idx
         self.max_target_positions = max_target_positions
-
-        self.embed_tokens = embed_tokens
         self.embed_scale = math.sqrt(embed_dim)  # todo: try with input_embed_dim
 
         self.project_in_dim = Linear(input_embed_dim, embed_dim, bias=False) if embed_dim != input_embed_dim else None

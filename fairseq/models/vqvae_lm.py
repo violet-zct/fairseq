@@ -20,6 +20,7 @@ import torch
 from torch.nn import functional as F
 from torch import nn
 
+from fairseq.models.typed_transformer import TransformerDecoder as TypedTransformerDecoder
 import numpy as np
 import math
 DEFAULT_MAX_SOURCE_POSITIONS = 1024
@@ -46,7 +47,7 @@ def print_stats(stats):
 
 
 class Quantize(nn.Module):
-    def __init__(self, args, dim, n_embed, decay=0.99, eps=1e-5):
+    def __init__(self, args, dim, n_embed, decay=0.99, eps=1e-5, param_emb=False):
         super().__init__()
 
         self.dim = dim
@@ -61,9 +62,14 @@ class Quantize(nn.Module):
         self.anneal_steps = args.soft_temp_anneal_steps
         self.samples = args.soft_samples
 
-        embed = torch.randn(dim, n_embed)
-        # embed = torch.normal(mean=0, std=dim ** -0.5, size=(dim, n_embed))
-        self.register_buffer('embed', embed)
+        self.is_emb_param = param_emb
+        if param_emb:
+            self.embed = nn.Parameter(torch.normal(mean=0, std=dim ** -0.5, size=(dim, n_embed+1)), requires_grad=True)
+        else:
+            # embed = torch.randn(dim, n_embed)
+            embed = torch.normal(mean=0, std=dim ** -0.5, size=(dim, n_embed))
+            self.register_buffer('embed', embed)
+
         self.register_buffer('cluster_size', torch.zeros(n_embed))
         self.register_buffer('embed_avg', embed.clone())
 
@@ -81,13 +87,22 @@ class Quantize(nn.Module):
         :param input_mask: T x batch
         :return:
         '''
+
+        if self.is_emb_param:
+            embed = self.embed.detach()
+        else:
+            embed = self.embed
+
         # S = T x B
         flatten = input.reshape(-1, self.dim)  # S x C
         dist = (
             flatten.pow(2).sum(1, keepdim=True)  # S x 1
-            - 2 * flatten @ self.embed   # S x C @ C x K
-            + self.embed.pow(2).sum(0, keepdim=True)  # 1 x K
+            - 2 * flatten @ embed   # S x C @ C x K
+            + embed.pow(2).sum(0, keepdim=True)  # 1 x K
         )  # S x K
+
+        if self.is_emb_param:
+            dist[:, -1] = float('inf')
 
         if self.training and updates < self.exploration_steps:
             sorted_cluster_size, sorted_indices = torch.sort(self.cluster_size, descending=True)
@@ -98,7 +113,7 @@ class Quantize(nn.Module):
             tau = self.get_temperature(updates)
             embed_ind = torch.multinomial(F.softmax(-dist / tau, -1), self.samples, replacement=True)  # S x samples
             embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten).mean(1)  # S x samples x K -> S x K
-            quantize = (embed_onehot @ self.embed.transpose(0, 1)).view(input.size(0), input.size(1), self.dim)
+            quantize = (embed_onehot @ embed.transpose(0, 1)).view(input.size(0), input.size(1), self.dim)
         else:
             _, embed_ind = (-dist).max(1)  # S
             embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten)  # S x K
@@ -141,7 +156,9 @@ class Quantize(nn.Module):
                 (self.cluster_size + self.eps) / (n + self.n_embed * self.eps) * n
             )
             embed_normalized = self.embed_avg / cluster_size.unsqueeze(0)
-            self.embed.data.copy_(embed_normalized)
+
+            with torch.no_grad():
+                self.embed.data.copy_(embed_normalized)
 
             # stats[prefix + 'moving_avg_cluster_mean'] = torch.mean(self.cluster_size)
             # stats[prefix + 'moving_avg_cluster_var'] = torch.var(self.cluster_size)
@@ -152,6 +169,9 @@ class Quantize(nn.Module):
         diff = (quantize.detach() - input).pow(2).mean()
         quantize = input + (quantize - input).detach()
 
+        if self.is_emb_param and self.training:
+            # this will be used to train AT prior
+            _, embed_ind = (-dist).max(1)
         return quantize, diff, embed_ind, stats
 
     def embed_code(self, embed_id):
@@ -160,7 +180,7 @@ class Quantize(nn.Module):
 
 @register_model('vqvae_lm')
 class VQVAE(FairseqLanguageModel):
-    def __init__(self, args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer, bottom_latent_encoder, global_quantizer):
+    def __init__(self, args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer, bottom_latent_encoder, global_quantizer, code_prior):
         super().__init__(text_decoder)
         self.text_encoder = text_encoder
         self.text_conv_encoder = text_conv_encoder
@@ -205,6 +225,8 @@ class VQVAE(FairseqLanguageModel):
             if not self.share_emb:
                 self.word_predict_out = nn.Parameter(torch.Tensor(len(self.decoder.dictionary), args.encoder_embed_dim))
                 nn.init.normal_(self.embed_out, mean=0, std=self.output_embed_dim ** -0.5)
+
+        self.code_prior = code_prior
 
     @staticmethod
     def add_args(parser):
@@ -325,7 +347,6 @@ class VQVAE(FairseqLanguageModel):
                             help='global code book size')
         # ablations
         parser.add_argument('--pretrain-steps', type=int, metavar='N')  # todo: remove
-        parser.add_argument('--use-latent', type=int, metavar='N')
         parser.add_argument('--add-latent-positions', type=int)
         parser.add_argument('--context-window', type=int, default=0)
         parser.add_argument('--encoder-opt-dropout', type=float, default=0.)
@@ -344,6 +365,29 @@ class VQVAE(FairseqLanguageModel):
         parser.add_argument('--use-seg-pos-emb', default=0, type=int,
                             help='used when encoder form is append')
         parser.add_argument('--use-stride-first', default=1, type=int)
+
+        # joint train with an autoregressive AT on latent codes
+        parser.add_argument('--add-at-prior', default=0, type=int,
+                            help='a 4 layer transformer decoder, share embedding with code book')
+        parser.add_argument('--at-prior-loss-start-steps', default=10000, type=int)
+        parser.add_argument('--at-prior-loss-anneal-steps', default=10000, type=int)
+        parser.add_argument('--at-prior-loss-min-weight', default=0.1, type=float)
+        parser.add_argument('--at-prior-loss-max-weight', default=1.0, type=float)
+
+        # two-scale conv latents, with an additional broader-scale conv
+        parser.add_argument('--wide-conv-kernel-size', type=str,
+                            help='[format: 1,2,3], kernel sizes for the bottom latent variables conv layers, '
+                                 'with transformer encoder outputs as inputs,'
+                                 'to use multi-channel CNN, use the format of [2-3-4,5-7]')
+        parser.add_argument("--wide-conv-stride", type=str,
+                            help='[format: 2,2,2], strides for the bottom latent variables conv layers')
+        parser.add_argument('--wide-latent-dim', type=int,
+                            help='bottom code book dimension')
+        parser.add_argument('--wide-latent-k', type=int,
+                            help='bottom code book size')
+
+        # use word-prediction as decoder on top of the deconv
+        parser.add_argument('--use-word-predict', type=int, default=0)
 
     @classmethod
     def build_model(cls, args, task):
@@ -395,10 +439,7 @@ class VQVAE(FairseqLanguageModel):
         text_encoder, text_conv_encoder, bottom_latent_encoder = cls.build_encoder(args, src_dict, encoder_embed_tokens)
         text_decoder = cls.build_decoder(args, src_dict, decoder_embed_tokens)
 
-        if args.use_latent:
-            bottom_quantizer = cls.build_quantizer(args)
-        else:
-            bottom_quantizer = None
+        bottom_quantizer = cls.build_quantizer(args)
 
         if args.use_global_quantant:
             if args.global_latent_dim != args.decoder_embed_dim:
@@ -409,8 +450,24 @@ class VQVAE(FairseqLanguageModel):
             global_quantizer = nn.ModuleList([Quantize(args, args.global_latent_dim, args.global_latent_k) for _ in range(k_global_codes)])
         else:
             global_quantizer = None
+
+        if args.add_at_prior:
+            code_prior = TypedTransformerDecoder(
+                args,
+                None,
+                bottom_quantizer.embed.t(),  # n x emb_dim: nn.Parameter
+                args.decoder_embed_dim, args.decoder_attention_heads,
+                1024, args.decoder_output_dim,
+                args.max_source_positions, 4,
+                encoder_embed_dim=args.bottom_latent_dim,
+                no_encoder_attn=True,
+                dict_size=args.bottom_latent_k,
+            )
+        else:
+            code_prior = None
+
         return VQVAE(args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer, bottom_latent_encoder,
-                     global_quantizer)
+                     global_quantizer, code_prior)
 
     @classmethod
     def build_encoder(cls, args, src_dict, embed_tokens):
@@ -459,14 +516,15 @@ class VQVAE(FairseqLanguageModel):
 
     @classmethod
     def build_decoder(cls, args, tgt_dict, embed_tokens):
-        if args.no_cross_attention:
+        if args.use_word_predict:
+            return None
+        elif args.no_cross_attention:
             from fairseq.models.transformer import TransformerDecoder
             text_decoder = TransformerDecoder(
                 args, tgt_dict, embed_tokens, no_encoder_attn=True,
             )
         else:
-            from fairseq.models.typed_transformer import TransformerDecoder
-            text_decoder = TransformerDecoder(
+            text_decoder = TypedTransformerDecoder(
                 args,
                 tgt_dict,
                 embed_tokens,
@@ -535,15 +593,16 @@ class VQVAE(FairseqLanguageModel):
 
     def forward(self, decoder_tokens, lengths, full_tokens, update_steps, **kwargs):
         mask, diff, quantize_out, quantize_stats, codes = self.forward_encoder(full_tokens, lengths, update_steps)
+        code_prior = {'code_prior_logits': quantize_out['code_prior_logits'],
+                      'code_prior_gold': quantize_out['code_prior_gold'], }
+        del quantize_out['code_prior_logits']
+        del quantize_out['code_prior_gold']
         if self.training and self.word_drop_rate > 0.0:
             decoder_tokens = self.spacing_mask_words(decoder_tokens, lengths)
             # decoder_tokens = self.mask_words(decoder_tokens, lengths)
         decoder_out = self.forward_decoder(decoder_tokens, encoder_out=quantize_out)
         logits = decoder_out[0]
-        return logits, diff, quantize_stats, mask.sum().type_as(diff), codes, quantize_out['word_predict']
-
-        # todo: prior model - one decoder, one encoder-decoder
-        # todo: hierarchical model
+        return logits, diff, quantize_stats, mask.sum().type_as(diff), codes, quantize_out['word_predict'], code_prior
 
     def forward_encoder(self, full_tokens, lengths, update_steps=-1, extrac_code_only=False):
         """
@@ -600,6 +659,18 @@ class VQVAE(FairseqLanguageModel):
             quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out,
                                                                               mask.transpose(0, 1).contiguous(),
                                                                               updates=update_steps)
+            embed_ind = embed_ind.view(*text_conv_out.shape[:-1])  # T' x batch
+            if self.code_prior is not None:
+                masked_prior_input = embed_ind.t().masked_fill(mask, self.bottom_quantizer.n_embed)  # batch x T'
+                shift_input = embed_ind.new_full((embed_ind.size(1), 1), self.bottom_quantizer.n_embed)  # batch x 1
+                prior_input = torch.cat([shift_input, masked_prior_input[:, 1:]], dim=1)
+                prior_output = self.code_prior(prior_input)
+                prior_logits = prior_output[0]
+                prior_pesudo_gold = masked_prior_input  # batch x T'
+            else:
+                prior_logits = None
+                prior_pesudo_gold = None
+
             # assume currently we are using deconv, so the input are padded to be multiple times of the shrink_ratio + 1
             if self.training and self.aug_loss == 'code_bow':
                 # T' x batch x C -> batch x T x C
@@ -628,17 +699,22 @@ class VQVAE(FairseqLanguageModel):
             quantize = text_conv_out
             diff = text_conv_out.new_zeros(1)
             quantize_stats = {}
+            prior_logits = prior_pesudo_gold = None
 
-        if self.bottom_latent_encoder is not None:
-            quantize = self.bottom_latent_encoder(src_encodings=quantize, encoder_padding_mask=~mask)
-            quantize = quantize['encoder_out']
-
-        quantize_out = {'encoder_out': quantize,  # masked T X batch x C  or B x T x C when use deconv
-                        'encoder_padding_mask': ~mask,  # B x T, this mask sets padding to be True
-                        # 'encoder_embedding': text_encoder_out['encoder_embedding']  # B x T x C
-                        'encoder_embedding': None,  # B x T x C
-                        'word_predict': word_predict
-                        }
+        if self.code_prior is None:
+            quantize_out = {'encoder_out': quantize,  # masked T X batch x C  or B x T x C when use deconv
+                            'encoder_padding_mask': ~mask,  # B x T, this mask sets padding to be True
+                            'encoder_embedding': None,  # B x T x C
+                            'word_predict': word_predict,
+                            }
+        else:
+            quantize_out = {'encoder_out': quantize,  # masked T X batch x C  or B x T x C when use deconv
+                            'encoder_padding_mask': ~mask,  # B x T, this mask sets padding to be True
+                            'encoder_embedding': None,  # B x T x C
+                            'word_predict': word_predict,
+                            'code_prior_logits': prior_logits,
+                            'code_prior_gold': prior_pesudo_gold,
+                            }
 
         if self.global_quantizer is not None:
             dummy_mask = mask.new_ones((1, text_conv_out.size(1)))  # 1 x B
@@ -675,6 +751,17 @@ class VQVAE(FairseqLanguageModel):
         decoder_out = self.decoder(decoder_tokens, encoder_out=encoder_out, incremental_state=incremental_state,
                                    aug_input=self.aug_input)
         return decoder_out
+
+    def max_positions(self):
+        """Maximum length supported by the model."""
+        if self.decoder is not None:
+            return self.decoder.max_positions()
+        else:
+            return self.args.max_source_positions
+
+    def max_decoder_positions(self):
+        """Maximum length supported by the decoder."""
+        return self.max_positions()
 
     def reorder_encoder_out(self, encoder_out, new_order):
         """
@@ -761,10 +848,15 @@ def base_architecture(args):
     args.decoder_output_dim = getattr(args, 'decoder_output_dim', args.decoder_embed_dim)
     args.decoder_input_dim = getattr(args, 'decoder_input_dim', args.decoder_embed_dim)
 
-    args.bottom_conv_kernel_size = getattr(args, 'bottom_conv_kernel_size', '5,3')
+    args.bottom_conv_kernel_size = getattr(args, 'bottom_conv_kernel_size', '5,5')
     args.bottom_conv_stride = getattr(args, 'bottom_conv_stride', '2,2')
     args.bottom_latent_dim = getattr(args, 'bottom_latent_dim', args.encoder_embed_dim)
     args.bottom_latent_k = getattr(args, 'bottom_latent_k', 4096)
+
+    args.wide_conv_kernel_size = getattr(args, 'wide_conv_kernel_size', '5,5')
+    args.wide_conv_stride = getattr(args, 'wide_conv_stride', '2,2')
+    args.wide_latent_dim = getattr(args, 'wide_latent_dim', args.encoder_embed_dim)
+    args.wide_latent_k = getattr(args, 'wide_latent_k', 4096)
 
     args.soft_em = getattr(args, 'soft_em', 0)
     args.soft_max_temp = getattr(args, 'soft_max_temp', 5.)
@@ -778,7 +870,6 @@ def base_architecture(args):
     args.bottom_encoder_attention_heads = getattr(args, 'bottom_encoder_attention_heads', 4)
 
     args.drop_word_prob = getattr(args, 'drop_word_prob', 0.0)
-    args.use_latent = getattr(args, 'use_latent', 1)
     args.pretrain_steps = getattr(args, 'pretrain_steps', -1)
     args.add_latent_positions = getattr(args, 'add_latent_positions', 0)
     args.context_window = getattr(args, 'context_window', 0)
