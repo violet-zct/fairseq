@@ -588,10 +588,13 @@ class VQVAE(FairseqLanguageModel):
 
     def forward(self, decoder_tokens, lengths, full_tokens, update_steps, **kwargs):
         mask, diff, quantize_out, quantize_stats, codes = self.forward_encoder(full_tokens, lengths, update_steps)
-        code_prior = {'code_prior_logits': quantize_out['code_prior_logits'],
-                      'code_prior_gold': quantize_out['code_prior_gold'], }
-        del quantize_out['code_prior_logits']
-        del quantize_out['code_prior_gold']
+
+        code_prior = {'code_prior_logits': quantize_out['code_prior_logits'] if self.code_prior is not None else None,
+                      'code_prior_gold': quantize_out['code_prior_gold'] if self.code_prior is not None else None,}
+        if self.code_prior is not None:
+            del quantize_out['code_prior_logits']
+            del quantize_out['code_prior_gold']
+
         if self.training and self.word_drop_rate > 0.0:
             decoder_tokens = self.spacing_mask_words(decoder_tokens, lengths)
             # decoder_tokens = self.mask_words(decoder_tokens, lengths)
