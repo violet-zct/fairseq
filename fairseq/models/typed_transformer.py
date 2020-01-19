@@ -237,7 +237,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
 
         if dict_size != -1:
             input_embed_dim = decoder_embed_dim
-            self.padding_idx = dict_size
+            self.padding_idx = dict_size - 1
             self.embed_tokens = nn.Embedding(dict_size, input_embed_dim, padding_idx=self.padding_idx, _weight=embed_tokens)
         else:
             input_embed_dim = embed_tokens.embedding_dim
@@ -387,6 +387,8 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         attn = None
         attns = []
         inner_states = [x]
+        global_vector = None
+
         for idx, layer in enumerate(self.layers):
             encoder_state = None
             if encoder_out is not None:
@@ -396,8 +398,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
                     encoder_state = encoder_out['encoder_out']
                 if 'global_quantize' in encoder_out:
                     global_vector = encoder_out['global_quantize']  # 1 x B x C
-                else:
-                    global_vector = None
+
             if incremental_state is None and not full_context_alignment:
                 self_attn_mask = self.buffered_future_mask(x)
             else:

@@ -111,8 +111,9 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         if code_prior_logits is not None and code_prior_gold is not None:
             code_prior_loss, code_prior_nll_loss = self.compute_label_smooth_loss(code_prior_logits, code_prior_gold, model.bottom_quantizer.n_embed)
             actual_codes = net_output[3]
-            code_prior_loss = code_prior_loss / actual_codes * sample_size * self.world_size
-            code_prior_nll_loss = code_prior_nll_loss / actual_codes * sample_size * self.world_size
+            batch_size = sample['target'].size(0)
+            code_prior_loss = code_prior_loss / (actual_codes - batch_size) * sample_size * self.world_size
+            code_prior_nll_loss = code_prior_nll_loss / (actual_codes - batch_size) * sample_size * self.world_size
             loss += self.get_at_prior_loss_weight() * code_prior_loss
 
         # nll_loss is sum over all the tokens/sentences
@@ -149,7 +150,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
 
     def compute_loss(self, model, net_output, sample, reduce=True):
         lprobs = model.get_normalized_probs(net_output, log_probs=True)
-        lprobs = lprobs.view(-1, lprobs.size(-1))
+        lprobs = lprobs.contiguous().view(-1, lprobs.size(-1))
         target = model.get_targets(sample, net_output).view(-1, 1)
         loss, nll_loss = label_smoothed_nll_loss(
             lprobs, target, self.eps, ignore_index=self.padding_idx, reduce=reduce,

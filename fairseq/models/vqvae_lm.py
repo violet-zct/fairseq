@@ -65,13 +65,15 @@ class Quantize(nn.Module):
         self.is_emb_param = param_emb
         if param_emb:
             self.embed = nn.Parameter(torch.normal(mean=0, std=dim ** -0.5, size=(dim, n_embed+1)), requires_grad=True)
+            n_embed += 1
+            self.n_embed = n_embed
         else:
             # embed = torch.randn(dim, n_embed)
             embed = torch.normal(mean=0, std=dim ** -0.5, size=(dim, n_embed))
             self.register_buffer('embed', embed)
 
         self.register_buffer('cluster_size', torch.zeros(n_embed))
-        self.register_buffer('embed_avg', embed.clone())
+        self.register_buffer('embed_avg', self.embed.clone())
 
         self.exploration_steps = args.quantize_explore_steps
         self.most_attend_k = int(self.n_embed * 0.6)
@@ -461,7 +463,7 @@ class VQVAE(FairseqLanguageModel):
                 args.max_source_positions, 4,
                 encoder_embed_dim=args.bottom_latent_dim,
                 no_encoder_attn=True,
-                dict_size=args.bottom_latent_k,
+                dict_size=args.bottom_latent_k+1,
             )
         else:
             code_prior = None
@@ -511,7 +513,7 @@ class VQVAE(FairseqLanguageModel):
 
     @classmethod
     def build_quantizer(cls, args):
-        bottom_quantizer = Quantize(args, args.bottom_latent_dim, args.bottom_latent_k)
+        bottom_quantizer = Quantize(args, args.bottom_latent_dim, args.bottom_latent_k, param_emb=args.add_at_prior)
         return bottom_quantizer
 
     @classmethod
@@ -661,12 +663,14 @@ class VQVAE(FairseqLanguageModel):
                                                                               updates=update_steps)
             embed_ind = embed_ind.view(*text_conv_out.shape[:-1])  # T' x batch
             if self.code_prior is not None:
-                masked_prior_input = embed_ind.t().masked_fill(mask, self.bottom_quantizer.n_embed)  # batch x T'
-                shift_input = embed_ind.new_full((embed_ind.size(1), 1), self.bottom_quantizer.n_embed)  # batch x 1
-                prior_input = torch.cat([shift_input, masked_prior_input[:, 1:]], dim=1)
+                masked_prior_input = embed_ind.t().masked_fill(~mask, self.args.bottom_latent_k)  # batch x T'
+                prior_input = masked_prior_input[:, :-1]
                 prior_output = self.code_prior(prior_input)
                 prior_logits = prior_output[0]
-                prior_pesudo_gold = masked_prior_input  # batch x T'
+                if masked_prior_input.size(1) == 1:
+                    prior_pesudo_gold = masked_prior_input
+                else:
+                    prior_pesudo_gold = masked_prior_input[:, 1:]  # batch x T'
             else:
                 prior_logits = None
                 prior_pesudo_gold = None
