@@ -150,7 +150,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
 
     def compute_loss(self, model, net_output, sample, reduce=True):
         lprobs = model.get_normalized_probs(net_output, log_probs=True)
-        lprobs = lprobs.contiguous().view(-1, lprobs.size(-1))
+        lprobs = lprobs.view(-1, lprobs.size(-1))
         target = model.get_targets(sample, net_output).view(-1, 1)
         loss, nll_loss = label_smoothed_nll_loss(
             lprobs, target, self.eps, ignore_index=self.padding_idx, reduce=reduce,
@@ -160,7 +160,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
     def compute_label_smooth_loss(self, logits, gold, padding_idx, reduce=True):
         lprobs = utils.log_softmax(logits, dim=-1)
         lprobs = lprobs.view(-1, lprobs.size(-1))
-        target = gold.view(-1, 1)
+        target = gold.contiguous().view(-1, 1)
         loss, nll_loss = label_smoothed_nll_loss(
             lprobs, target, self.eps, ignore_index=padding_idx, reduce=reduce,
         )
