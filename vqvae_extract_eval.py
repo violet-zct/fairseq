@@ -144,6 +144,7 @@ def main(args, override_args=None):
                     prefix_tokens = None if args.prefix_num == 0 else sample['target'][:, :args.prefix_num]
                     gen_timer.start()
                     hypos, codes = task.reconstruct(sample, model, generator, prefix_tokens)
+                    all_codes.update(torch.unique(codes).tolist())
                     num_generated_tokens = sum(len(h[0]['tokens']) for h in hypos)
                     gen_timer.stop(num_generated_tokens)
                     wps_meter.update(num_generated_tokens)
