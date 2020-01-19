@@ -45,6 +45,8 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         self.latent_k = args.bottom_latent_k
         self.word_predict_loss_weight = getattr(args, 'aug_loss_weight', 0)
 
+        self.world_size = args.distributed_world_size
+
     @staticmethod
     def add_args(parser):
         """Add criterion-specific arguments to the parser."""
@@ -77,6 +79,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
 
         shifted_src_tokens, lengths, target_tokens = sample['net_input']['src_tokens'], \
                                                      sample['net_input']['src_lengths'], sample['target']
+        #  logits, diff, quantize_stats, mask.sum().type_as(diff), codes, quantize_out['word_predict']
         net_output = model(shifted_src_tokens, lengths, target_tokens, self.updates)
         loss, nll_loss = self.compute_loss(model, net_output, sample, reduce=reduce)  # loss is the sum loss over tokens
         commit_weight = self.get_commitment_weight()
@@ -84,7 +87,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         commitment_loss = commit_weight * net_output[1]  # this is the mean loss over latent dimensions
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
 
-        commitment_loss = commitment_loss * sample_size
+        commitment_loss = commitment_loss * sample_size * self.world_size
         loss = loss + commitment_loss
 
         word_predict = net_output[5]
@@ -104,6 +107,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             'ntokens': sample['ntokens'],
             'nsentences': sample['target'].size(0),
             'sample_size': sample_size,
+            'code_num': utils.item(net_output[3].data),
         }
 
         if word_predict is not None:
@@ -113,6 +117,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             codes = net_output[4]['bottom_codes']  # B x T
             # logging_output['unique_codes'] = torch.unique(codes)
             logging_output['unique_codes'] = len(torch.unique(codes))
+
         logging_output.update(quantize_stats)
         if self.training:
             self.updates += 1
@@ -124,6 +129,15 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         target = model.get_targets(sample, net_output).view(-1, 1)
         loss, nll_loss = label_smoothed_nll_loss(
             lprobs, target, self.eps, ignore_index=self.padding_idx, reduce=reduce,
+        )
+        return loss, nll_loss
+
+    def compute_label_smooth_loss(self, logits, gold, padding_idx, reduce=True):
+        lprobs = utils.log_softmax(logits, dim=-1)
+        lprobs = lprobs.view(-1, lprobs.size(-1))
+        target = gold.contiguous().view(-1, 1)
+        loss, nll_loss = label_smoothed_nll_loss(
+            lprobs, target, self.eps, ignore_index=padding_idx, reduce=reduce,
         )
         return loss, nll_loss
 
@@ -145,20 +159,25 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         ntokens = sum(log.get('ntokens', 0) for log in logging_outputs)
         nsentences = sum(log.get('nsentences', 0) for log in logging_outputs)
         sample_size = sum(log.get('sample_size', 0) for log in logging_outputs)
+        code_num = sum(log.get('code_num', 0) for log in logging_outputs)
 
         results = {
             'loss': sum(log.get('loss', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.,
             'nll_loss': sum(log.get('nll_loss', 0) for log in logging_outputs) / ntokens / math.log(2) if ntokens > 0 else 0.,
-            'commit_loss': sum(log.get('commit_loss', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.,
+            'commit_loss': sum(log.get('commit_loss', 0) for log in logging_outputs) / len(logging_outputs) / sample_size if sample_size > 0 else 0.,
             'true_nll_loss': sum(log.get('true_nll_loss', 0) for log in logging_outputs) / ntokens / math.log(2) if ntokens > 0 else 0.,
             'ntokens': ntokens,
             'nsentences': nsentences,
             'sample_size': sample_size,
+            'code_num': code_num / len(logging_outputs),
         }
 
-        results['word_nll_loss'] = sum(log.get('word_nll_loss', 0) for log in logging_outputs) / ntokens / math.log(2) if ntokens > 0 else 0.
-        codes = sum(log.get('unique_codes', 0) for log in logging_outputs) / len(logging_outputs) if len(logging_outputs) > 0 else 0
-        results['unique_codes'] = codes
+        if len(logging_outputs) > 0 and 'word_nll_loss' in logging_outputs[0]:
+            results['word_nll_loss'] = sum(log.get('word_nll_loss', 0) for log in logging_outputs) / ntokens / math.log(2) if ntokens > 0 else 0.
+
+        if len(logging_outputs) > 0 and 'unique_codes' in logging_outputs[0]:
+            codes = sum(log.get('unique_codes', 0) for log in logging_outputs) / len(logging_outputs)
+            results['unique_codes'] = codes
 
         if len(logging_outputs) > 0:
             for k in logging_outputs[0].keys():
