@@ -182,12 +182,11 @@ class Quantize(nn.Module):
 
 @register_model('vqvae_lm')
 class VQVAE(FairseqLanguageModel):
-    def __init__(self, args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer, bottom_latent_encoder, global_quantizer, code_prior):
+    def __init__(self, args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer, global_quantizer, code_prior):
         super().__init__(text_decoder)
         self.text_encoder = text_encoder
         self.text_conv_encoder = text_conv_encoder
         self.bottom_quantizer = bottom_quantizer
-        self.bottom_latent_encoder = bottom_latent_encoder
         self.global_quantizer = global_quantizer
 
         self.bottom_conv_kernel_size, self.bottom_conv_strides = \
@@ -438,7 +437,7 @@ class VQVAE(FairseqLanguageModel):
                 src_dict, args.decoder_embed_dim, args.decoder_embed_path
             )
 
-        text_encoder, text_conv_encoder, bottom_latent_encoder = cls.build_encoder(args, src_dict, encoder_embed_tokens)
+        text_encoder, text_conv_encoder = cls.build_encoder(args, src_dict, encoder_embed_tokens)
         text_decoder = cls.build_decoder(args, src_dict, decoder_embed_tokens)
 
         bottom_quantizer = cls.build_quantizer(args)
@@ -468,7 +467,7 @@ class VQVAE(FairseqLanguageModel):
         else:
             code_prior = None
 
-        return VQVAE(args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer, bottom_latent_encoder,
+        return VQVAE(args, text_encoder, text_conv_encoder, text_decoder, bottom_quantizer,
                      global_quantizer, code_prior)
 
     @classmethod
@@ -503,13 +502,7 @@ class VQVAE(FairseqLanguageModel):
         else:
             raise NotImplementedError
 
-        if args.use_bottom_quantants_encoder:
-            bottom_latent_encoder = TransformerEncoder(args, None, None, args.max_source_positions,
-                                            args.bottom_encoder_layers, args.bottom_latent_dim,
-                                            args.bottom_encoder_attention_heads, args.bottom_encoder_ffn_embed_dim)
-        else:
-            bottom_latent_encoder = None
-        return text_encoder, text_conv_encoder, bottom_latent_encoder
+        return text_encoder, text_conv_encoder
 
     @classmethod
     def build_quantizer(cls, args):
@@ -661,8 +654,8 @@ class VQVAE(FairseqLanguageModel):
             quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out,
                                                                               mask.transpose(0, 1).contiguous(),
                                                                               updates=update_steps)
-            embed_ind = embed_ind.view(*text_conv_out.shape[:-1])  # T' x batch
             if self.code_prior is not None:
+                embed_ind = embed_ind.view(*text_conv_out.shape[:-1])  # T' x batch
                 masked_prior_input = embed_ind.t().masked_fill(~mask, self.args.bottom_latent_k)  # batch x T'
                 prior_input = masked_prior_input[:, :-1]
                 prior_output = self.code_prior(prior_input)
