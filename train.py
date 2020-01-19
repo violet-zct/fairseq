@@ -154,7 +154,6 @@ def train(args, trainer, task, epoch_itr, generator=None):
                     stats['true_ppl'] = utils.get_perplexity(extra_meters[k].avg)
                 if 'code_prior_nll_loss' in k:
                     extra_meters[k].update(v, log_output['code_num'])
-                    stats['code_nll_loss'] = extra_meters[k].avg
                     stats['code_ppl'] = utils.get_perplexity(extra_meters[k].avg)
             else:
                 extra_meters[k].update(v)

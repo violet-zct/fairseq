@@ -128,7 +128,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             'ntokens': sample['ntokens'],
             'nsentences': sample['target'].size(0),
             'sample_size': sample_size,
-            'code_num': net_output[3],
+            'code_num': utils.item(net_output[3].data),
         }
 
         if word_predict is not None:
@@ -194,7 +194,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             'ntokens': ntokens,
             'nsentences': nsentences,
             'sample_size': sample_size,
-            'code_num': code_num,
+            'code_num': code_num / len(logging_outputs),
         }
 
         if len(logging_outputs) > 0 and 'word_nll_loss' in logging_outputs[0]:
