@@ -148,13 +148,12 @@ def train(args, trainer, task, epoch_itr, generator=None):
         for k, v in log_output.items():
             if k in ['loss', 'nll_loss', 'ntokens', 'nsentences', 'sample_size']:
                 continue  # these are already logged above
-            if 'loss' in k or k == 'accuracy':
-                if 'true_nll_loss' in k:
-                    extra_meters[k].update(v, log_output['sample_size'])
-                    stats['true_ppl'] = utils.get_perplexity(extra_meters[k].avg)
-                if 'code_prior_nll_loss' in k:
-                    extra_meters[k].update(v, log_output['code_num'])
-                    stats['code_ppl'] = utils.get_perplexity(extra_meters[k].avg)
+            if 'true_nll_loss' in k:
+                extra_meters[k].update(v, log_output['sample_size'])
+                stats['true_ppl'] = utils.get_perplexity(extra_meters[k].avg)
+            elif 'code_prior_nll_loss' in k:
+                extra_meters[k].update(v, log_output['code_num'])
+                stats['code_ppl'] = utils.get_perplexity(extra_meters[k].avg)
             else:
                 extra_meters[k].update(v)
             stats[k] = extra_meters[k].avg
