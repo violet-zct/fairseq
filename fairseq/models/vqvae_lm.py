@@ -61,8 +61,8 @@ class Quantize(nn.Module):
         self.anneal_steps = args.soft_temp_anneal_steps
         self.samples = args.soft_samples
 
-        embed = torch.randn(dim, n_embed)
-        # embed = torch.normal(mean=0, std=dim ** -0.5, size=(dim, n_embed))
+        # embed = torch.randn(dim, n_embed)
+        embed = torch.normal(mean=0, std=dim ** -0.5, size=(dim, n_embed))
         self.register_buffer('embed', embed)
         self.register_buffer('cluster_size', torch.zeros(n_embed))
         self.register_buffer('embed_avg', embed.clone())
