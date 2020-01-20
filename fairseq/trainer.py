@@ -405,8 +405,7 @@ class Trainer(object):
 
             # clip grads
             grad_norm = self.optimizer.clip_grad_norm(self.args.clip_norm)
-            self._prev_grad_norm = grad_norm
-
+            
             if math.isnan(grad_norm):
                 self.num_nans += 1
                 for k, v in logging_output.items():
@@ -415,6 +414,7 @@ class Trainer(object):
                 # take an optimization step
                 self.optimizer.step()
                 self.set_num_updates(self.get_num_updates() + 1)
+                self._prev_grad_norm = grad_norm
 
             # task specific update per step
             self.task.update_step(self._num_updates)
