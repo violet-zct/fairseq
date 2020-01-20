@@ -7,7 +7,7 @@ import numpy as np
 import torch
 
 from . import data_utils, FairseqDataset
-
+import math
 
 def collate(samples, pad_idx, eos_idx):
     if len(samples) == 0:
@@ -187,9 +187,14 @@ class MonolingualDataset(FairseqDataset):
         on this order."""
         if self.shuffle:
             order = [np.random.permutation(len(self))]
+            if hasattr(self.dataset, 'context_mode') and self.dataset.context_mode == 'window':
+                order = [order[0][:math.ceil(len(self)*0.6)]]
+                order.append(self.sizes[order[0]])
+            else:
+                order.append(self.sizes)
         else:
             order = [np.arange(len(self))]
-        order.append(self.sizes)
+            order.append(self.sizes)
         return np.lexsort(order)
 
     @property
