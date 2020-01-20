@@ -109,7 +109,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         code_prior = net_output[6]
         code_prior_logits, code_prior_gold = code_prior['code_prior_logits'], code_prior['code_prior_gold']
         if code_prior_logits is not None and code_prior_gold is not None:
-            code_prior_loss, code_prior_nll_loss = self.compute_label_smooth_loss(code_prior_logits, code_prior_gold, model.bottom_quantizer.n_embed)
+            code_prior_loss, code_prior_nll_loss = self.compute_xet_loss(code_prior_logits, code_prior_gold, model.bottom_quantizer.n_embed)
             actual_codes = net_output[3]
             batch_size = sample['target'].size(0)
             code_prior_loss = code_prior_loss / (actual_codes - batch_size) * sample_size * self.world_size
