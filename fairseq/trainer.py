@@ -405,7 +405,7 @@ class Trainer(object):
 
             # clip grads
             grad_norm = self.optimizer.clip_grad_norm(self.args.clip_norm)
-            
+
             if math.isnan(grad_norm):
                 self.num_nans += 1
                 for k, v in logging_output.items():
