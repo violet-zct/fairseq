@@ -220,6 +220,7 @@ def get_training_stats(trainer):
     stats['gnorm'] = trainer.get_meter('gnorm')
     stats['clip'] = trainer.get_meter('clip')
     stats['oom'] = trainer.get_meter('oom')
+    stats['nan_clip'] = trainer.num_nans
     if trainer.get_meter('loss_scale') is not None:
         stats['loss_scale'] = trainer.get_meter('loss_scale')
     stats['wall'] = round(trainer.get_meter('wall').elapsed_time)
