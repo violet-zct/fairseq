@@ -409,6 +409,8 @@ class Trainer(object):
 
             if math.isnan(grad_norm):
                 self.num_nans += 1
+                for k, v in logging_output.items():
+                    logging_output[k] = 0
             else:
                 # take an optimization step
                 self.optimizer.step()
