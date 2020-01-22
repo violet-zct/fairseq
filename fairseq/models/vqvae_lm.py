@@ -78,6 +78,8 @@ class Quantize(nn.Module):
         self.exploration_steps = args.quantize_explore_steps
         self.most_attend_k = int(self.n_embed * 0.6)
 
+        self.disable_mea = getattr(args, 'disable_mea', 0)
+
     def get_temperature(self, updates):
         if updates == -1:
             return self.min_temp
@@ -136,7 +138,7 @@ class Quantize(nn.Module):
 
         effective_units = 1.0 / embed_onehot[input_mask.view(-1)].mean(0).pow(2).sum()
         stats[prefix + 'effective latents per batch'] = effective_units
-        if self.training:
+        if self.training and not self.disable_mea:
             unmasked_flatten = torch.masked_select(flatten, input_mask.view(-1, 1)).contiguous().view(-1, self.dim)  # num_latents x C
             unmasked_embed_onehot = torch.masked_select(embed_onehot, input_mask.view(-1, 1)).contiguous().view(-1, self.n_embed)  # num_latents x K
 
@@ -169,6 +171,9 @@ class Quantize(nn.Module):
         quantize = quantize * input_mask.unsqueeze(-1)
         input = input * input_mask.unsqueeze(-1)
         diff = (quantize.detach() - input).pow(2).mean()
+
+        if self.disable_mea:
+            diff = diff + (quantize - input.detach()).pow(2).mean()
         quantize = input + (quantize - input).detach()
 
         if self.is_emb_param and self.training:
@@ -389,6 +394,7 @@ class VQVAE(FairseqLanguageModel):
 
         # use word-prediction as decoder on top of the deconv
         parser.add_argument('--use-word-predict', type=int, default=0)
+        parser.add_argument('--disable-mea', type=int, default=0)
 
     @classmethod
     def build_model(cls, args, task):
