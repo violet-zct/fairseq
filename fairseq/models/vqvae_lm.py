@@ -61,12 +61,14 @@ class Quantize(nn.Module):
         self.diff_temp = self.max_temp - self.min_temp
         self.anneal_steps = args.soft_temp_anneal_steps
         self.samples = args.soft_samples
-
+        self.disable_mea = getattr(args, 'disable_mea', 0)
         self.is_emb_param = param_emb
         if param_emb:
             self.embed = nn.Parameter(torch.normal(mean=0, std=dim ** -0.5, size=(dim, n_embed+1)), requires_grad=True)
             n_embed += 1
             self.n_embed = n_embed
+        elif self.disable_mea:
+            self.embed = nn.Parameter(torch.normal(mean=0, std=dim ** -0.5, size=(dim, n_embed)), requires_grad=True)
         else:
             # embed = torch.randn(dim, n_embed)
             embed = torch.normal(mean=0, std=dim ** -0.5, size=(dim, n_embed))
@@ -77,8 +79,6 @@ class Quantize(nn.Module):
 
         self.exploration_steps = args.quantize_explore_steps
         self.most_attend_k = int(self.n_embed * 0.6)
-
-        self.disable_mea = getattr(args, 'disable_mea', 0)
 
     def get_temperature(self, updates):
         if updates == -1:
@@ -92,7 +92,7 @@ class Quantize(nn.Module):
         :return:
         '''
 
-        if self.is_emb_param:
+        if self.is_emb_param and not self.disable_mea:
             embed = self.embed.detach()
         else:
             embed = self.embed
@@ -176,7 +176,7 @@ class Quantize(nn.Module):
             diff = diff + (quantize - input.detach()).pow(2).mean()
         quantize = input + (quantize - input).detach()
 
-        if self.is_emb_param and self.training:
+        if self.is_emb_param and self.training and self.soft:
             # this will be used to train AT prior
             _, embed_ind = (-dist).max(1)
         return quantize, diff, embed_ind, stats
@@ -663,7 +663,7 @@ class VQVAE(FairseqLanguageModel):
             quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out,
                                                                               mask.transpose(0, 1).contiguous(),
                                                                               updates=update_steps)
-            if self.code_prior is not None:
+            if self.code_prior is not None and self.training:
                 embed_ind = embed_ind.view(*text_conv_out.shape[:-1])  # T' x batch
                 masked_prior_input = embed_ind.t().masked_fill(~mask, self.args.bottom_latent_k)  # batch x T'
                 prior_input = masked_prior_input[:, :-1]
