@@ -138,31 +138,32 @@ class Quantize(nn.Module):
 
         effective_units = 1.0 / embed_onehot[input_mask.view(-1)].mean(0).pow(2).sum()
         stats[prefix + 'effective latents per batch'] = effective_units
-        if self.training and not self.disable_mea:
+        if self.training:
             unmasked_flatten = torch.masked_select(flatten, input_mask.view(-1, 1)).contiguous().view(-1, self.dim)  # num_latents x C
             unmasked_embed_onehot = torch.masked_select(embed_onehot, input_mask.view(-1, 1)).contiguous().view(-1, self.n_embed)  # num_latents x K
 
             cluster_sum = unmasked_embed_onehot.sum(0)
-            embed_sum = unmasked_flatten.transpose(0, 1) @ unmasked_embed_onehot  # C x K
-
             if torch.cuda.device_count() > 1:
                 torch.distributed.all_reduce(cluster_sum)
-                torch.distributed.all_reduce(embed_sum)
-
             self.cluster_size.data.mul_(self.decay).add_(
                 1 - self.decay, cluster_sum
             )
-            self.embed_avg.data.mul_(self.decay).add_(
-                1 - self.decay, embed_sum
-            )
-            n = self.cluster_size.sum()
-            cluster_size = (
-                (self.cluster_size + self.eps) / (n + self.n_embed * self.eps) * n
-            )
-            embed_normalized = self.embed_avg / cluster_size.unsqueeze(0)
 
-            with torch.no_grad():
-                self.embed.data.copy_(embed_normalized)
+            if not self.disable_mea:
+                embed_sum = unmasked_flatten.transpose(0, 1) @ unmasked_embed_onehot  # C x K
+                if torch.cuda.device_count() > 1:
+                    torch.distributed.all_reduce(embed_sum)
+                self.embed_avg.data.mul_(self.decay).add_(
+                    1 - self.decay, embed_sum
+                )
+                n = self.cluster_size.sum()
+                cluster_size = (
+                    (self.cluster_size + self.eps) / (n + self.n_embed * self.eps) * n
+                )
+                embed_normalized = self.embed_avg / cluster_size.unsqueeze(0)
+
+                with torch.no_grad():
+                    self.embed.data.copy_(embed_normalized)
 
             # stats[prefix + 'moving_avg_cluster_mean'] = torch.mean(self.cluster_size)
             # stats[prefix + 'moving_avg_cluster_var'] = torch.var(self.cluster_size)
