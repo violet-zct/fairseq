@@ -177,7 +177,7 @@ class Quantize(nn.Module):
             diff = diff + (quantize - input.detach()).pow(2).mean()
         quantize = input + (quantize - input).detach()
 
-        if self.is_emb_param and self.training and self.soft:
+        if self.is_emb_param and self.soft:
             # this will be used to train AT prior
             _, embed_ind = (-dist).max(1)
         return quantize, diff, embed_ind, stats
@@ -664,7 +664,7 @@ class VQVAE(FairseqLanguageModel):
             quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out,
                                                                               mask.transpose(0, 1).contiguous(),
                                                                               updates=update_steps)
-            if self.code_prior is not None and self.training:
+            if self.code_prior is not None:
                 embed_ind = embed_ind.view(*text_conv_out.shape[:-1])  # T' x batch
                 masked_prior_input = embed_ind.t().masked_fill(~mask, self.args.bottom_latent_k)  # batch x T'
                 prior_input = masked_prior_input[:, :-1]
