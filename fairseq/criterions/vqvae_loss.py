@@ -160,7 +160,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
     def compute_xet_loss(self, logits, gold, padding_idx, reduce=True):
         lprobs = utils.log_softmax(logits, dim=-1)
         lprobs = lprobs.view(-1, lprobs.size(-1))
-        target = gold.contiguous().view(-1, 1)
+        target = gold.contiguous().view(-1)
         loss = F.nll_loss(
             lprobs,
             target,
