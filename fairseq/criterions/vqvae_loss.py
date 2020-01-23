@@ -124,7 +124,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         logging_output = {
             'loss': utils.item(loss.data) if reduce else loss.data,
             'nll_loss': utils.item(nll_loss.data) if reduce else nll_loss.data,
-            'commit_loss': utils.item(commitment_loss.data),
+            'commit_loss': utils.item(commitment_loss.data) / commit_weight,
             'true_nll_loss': utils.item(true_nll_loss.data),
             'ntokens': sample['ntokens'],
             'nsentences': sample['target'].size(0),
