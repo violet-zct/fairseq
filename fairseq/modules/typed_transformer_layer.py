@@ -134,7 +134,8 @@ class TransformerDecoderLayer(nn.Module):
     """
 
     def __init__(self, args, decoder_embed_dim, decoder_attention_heads, decoder_ffn_embed_dim,
-                 encoder_embed_dim, no_encoder_attn=False, add_bias_kv=False, add_zero_attn=False):
+                 encoder_embed_dim, no_encoder_attn=False, add_bias_kv=False, add_zero_attn=False,):
+
         super().__init__()
         self.embed_dim = decoder_embed_dim
         self.cross_self_attention = getattr(args, 'cross_self_attention', False)

@@ -63,6 +63,7 @@ class Trainer(object):
         self.fast_stat_sync = args.fast_stat_sync
 
         self.init_meters(args)
+        self.num_nans = 0
 
     def init_meters(self, args):
         self.meters = OrderedDict()
@@ -404,11 +405,16 @@ class Trainer(object):
 
             # clip grads
             grad_norm = self.optimizer.clip_grad_norm(self.args.clip_norm)
-            self._prev_grad_norm = grad_norm
 
-            # take an optimization step
-            self.optimizer.step()
-            self.set_num_updates(self.get_num_updates() + 1)
+            if math.isnan(grad_norm):
+                self.num_nans += 1
+                for k, v in logging_output.items():
+                    logging_output[k] = 0
+            else:
+                # take an optimization step
+                self.optimizer.step()
+                self.set_num_updates(self.get_num_updates() + 1)
+                self._prev_grad_norm = grad_norm
 
             # task specific update per step
             self.task.update_step(self._num_updates)

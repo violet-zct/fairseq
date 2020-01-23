@@ -151,6 +151,9 @@ def train(args, trainer, task, epoch_itr, generator=None):
             if 'true_nll_loss' in k:
                 extra_meters[k].update(v, log_output['sample_size'])
                 stats['true_ppl'] = utils.get_perplexity(extra_meters[k].avg)
+            elif 'code_prior_nll_loss' in k:
+                extra_meters[k].update(v, log_output['code_num'])
+                stats['code_ppl'] = utils.get_perplexity(extra_meters[k].avg)
             else:
                 extra_meters[k].update(v)
             stats[k] = extra_meters[k].avg
@@ -185,6 +188,8 @@ def train(args, trainer, task, epoch_itr, generator=None):
     for k, meter in extra_meters.items():
         if k == "true_nll_loss":
             stats['true_ppl'] = utils.get_perplexity(meter.avg)
+        if k == 'code_prior_nll_loss':
+            stats['code_ppl'] = utils.get_perplexity(meter.avg)
         stats[k] = meter.avg
     progress.print(stats, tag='train', step=stats['num_updates'])
 
@@ -215,6 +220,7 @@ def get_training_stats(trainer):
     stats['gnorm'] = trainer.get_meter('gnorm')
     stats['clip'] = trainer.get_meter('clip')
     stats['oom'] = trainer.get_meter('oom')
+    stats['nan_clip'] = trainer.num_nans
     if trainer.get_meter('loss_scale') is not None:
         stats['loss_scale'] = trainer.get_meter('loss_scale')
     stats['wall'] = round(trainer.get_meter('wall').elapsed_time)
@@ -268,6 +274,8 @@ def validate(args, trainer, task, epoch_itr, subsets):
                     continue
                 if k == 'true_nll_loss':
                     extra_meters[k].update(v, log_output['ntokens'])
+                elif k == 'code_prior_nll_loss':
+                    extra_meters[k].update(v, log_output['code_num'])
                 else:
                     extra_meters[k].update(v)
 
@@ -276,6 +284,8 @@ def validate(args, trainer, task, epoch_itr, subsets):
         for k, meter in extra_meters.items():
             if k == "true_nll_loss":
                 stats['true_ppl'] = utils.get_perplexity(meter.avg)
+            if k == 'code_prior_nll_loss':
+                stats['code_ppl'] = utils.get_perplexity(extra_meters[k].avg)
             stats[k] = meter.avg
         progress.print(stats, tag=subset, step=trainer.get_num_updates())
 

@@ -45,6 +45,11 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         self.latent_k = args.bottom_latent_k
         self.word_predict_loss_weight = getattr(args, 'aug_loss_weight', 0)
 
+        self.at_prior_loss_start_steps = getattr(args, 'at_prior_loss_start_steps', 0)
+        self.at_prior_loss_anneal_steps = getattr(args, 'at_prior_loss_anneal_steps', 0)
+        self.at_prior_loss_min_weight = getattr(args, 'at_prior_loss_min_weight', 0)
+        self.at_prior_loss_max_weight = getattr(args, 'at_prior_loss_max_weight', 0)
+
         self.world_size = args.distributed_world_size
 
     @staticmethod
@@ -66,6 +71,13 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             return self.commitment_cost
         else:
             return self.commitment_cost * min((self.updates - self.commit_warm_up_steps) / self.commit_anneal_steps, 1.0)
+
+    def get_at_prior_loss_weight(self):
+        if self.updates <= self.at_prior_loss_start_steps:
+            return 0.
+        else:
+            increase_steps = min((self.updates - self.at_prior_loss_start_steps), self.at_prior_loss_anneal_steps) * 1.0
+            return min(self.at_prior_loss_max_weight, self.at_prior_loss_min_weight + increase_steps/self.at_prior_loss_anneal_steps)
 
     def forward(self, model, sample, reduce=True):
         """Compute the loss for the given sample.
@@ -95,6 +107,16 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             word_predict_loss = self.compute_cross_entropy(word_predict, sample, reduce=reduce)  # loss is the sum loss over tokens
             loss += self.word_predict_loss_weight * word_predict_loss
 
+        code_prior = net_output[6]
+        code_prior_logits, code_prior_gold = code_prior['code_prior_logits'], code_prior['code_prior_gold']
+        if code_prior_logits is not None and code_prior_gold is not None:
+            code_prior_loss, code_prior_nll_loss = self.compute_xet_loss(code_prior_logits, code_prior_gold, model.bottom_quantizer.n_embed)
+            actual_codes = net_output[3]
+            batch_size = sample['target'].size(0)
+            code_prior_loss = code_prior_loss / (actual_codes - batch_size) * sample_size * self.world_size
+            code_prior_nll_loss = code_prior_nll_loss / (actual_codes - batch_size) * sample_size * self.world_size
+            loss += self.get_at_prior_loss_weight() * code_prior_loss
+
         # nll_loss is sum over all the tokens/sentences
         true_nll_loss = nll_loss + math.log(self.latent_k) * net_output[3]  # net_output[3] is the actual number of codes
 
@@ -112,6 +134,10 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
 
         if word_predict is not None:
             logging_output['word_nll_loss'] = utils.item(word_predict_loss.data) if reduce else word_predict_loss.data
+
+        if code_prior_logits is not None and code_prior_gold is not None:
+            logging_output['code_prior_loss'] = utils.item(code_prior_loss.data) if reduce else code_prior_loss.data
+            logging_output['code_prior_nll_loss'] = utils.item(code_prior_nll_loss.data) if reduce else code_prior_nll_loss.data
 
         if not self.training:
             codes = net_output[4]['bottom_codes']  # B x T
@@ -132,14 +158,17 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         )
         return loss, nll_loss
 
-    def compute_label_smooth_loss(self, logits, gold, padding_idx, reduce=True):
+    def compute_xet_loss(self, logits, gold, padding_idx, reduce=True):
         lprobs = utils.log_softmax(logits, dim=-1)
         lprobs = lprobs.view(-1, lprobs.size(-1))
-        target = gold.contiguous().view(-1, 1)
-        loss, nll_loss = label_smoothed_nll_loss(
-            lprobs, target, self.eps, ignore_index=padding_idx, reduce=reduce,
+        target = gold.contiguous().view(-1)
+        loss = F.nll_loss(
+            lprobs,
+            target,
+            ignore_index=padding_idx,
+            reduction='sum' if reduce else 'none',
         )
-        return loss, nll_loss
+        return loss, loss
 
     def compute_cross_entropy(self, logits, sample, reduce=True):
         lprobs = utils.log_softmax(logits, dim=-1, onnx_trace=False)
@@ -178,6 +207,12 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         if len(logging_outputs) > 0 and 'unique_codes' in logging_outputs[0]:
             codes = sum(log.get('unique_codes', 0) for log in logging_outputs) / len(logging_outputs)
             results['unique_codes'] = codes
+
+        if len(logging_outputs) > 0 and 'code_prior_loss' in logging_outputs[0]:
+            results['code_prior_loss'] = sum(log.get('code_prior_loss', 0) for log in logging_outputs) / len(logging_outputs) \
+                                         / sample_size if sample_size > 0 else 0.
+            results['code_prior_nll_loss'] = sum(log.get('code_prior_nll_loss', 0) for log in logging_outputs) / len(logging_outputs) \
+                                             / ntokens / math.log(2) if ntokens > 0 else 0.
 
         if len(logging_outputs) > 0:
             for k in logging_outputs[0].keys():
