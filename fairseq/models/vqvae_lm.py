@@ -68,6 +68,7 @@ class Quantize(nn.Module):
             n_embed += 1
             self.n_embed = n_embed
         elif self.disable_mea:
+            # disable mea works better with less exploration
             self.embed = nn.Parameter(torch.normal(mean=0, std=dim ** -0.5, size=(dim, n_embed)), requires_grad=True)
         else:
             # embed = torch.randn(dim, n_embed)
@@ -79,6 +80,8 @@ class Quantize(nn.Module):
 
         self.exploration_steps = args.quantize_explore_steps
         self.most_attend_k = int(self.n_embed * 0.6)
+
+        self.commit_weight = args.commitment_cost
 
     def get_temperature(self, updates):
         if updates == -1:
@@ -174,7 +177,7 @@ class Quantize(nn.Module):
         diff = (quantize.detach() - input).pow(2).mean()
 
         if self.disable_mea:
-            diff = diff + (quantize - input.detach()).pow(2).mean()
+            diff = diff + (quantize - input.detach()).pow(2).mean() / self.commit_weight
         quantize = input + (quantize - input).detach()
 
         if self.is_emb_param and self.soft:
