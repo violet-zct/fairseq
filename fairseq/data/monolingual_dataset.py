@@ -188,7 +188,7 @@ class MonolingualDataset(FairseqDataset):
         if self.shuffle:
             order = [np.random.permutation(len(self))]
             if hasattr(self.dataset, 'context_mode') and self.dataset.context_mode == 'window':
-                order = [order[0][:math.ceil(len(self)*0.6)]]
+                order = [order[0][:math.ceil(len(self)*0.3)]]
                 order.append(self.sizes[order[0]])
             else:
                 order.append(self.sizes)
