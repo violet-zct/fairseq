@@ -198,7 +198,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             'ntokens': ntokens,
             'nsentences': nsentences,
             'sample_size': sample_size,
-            'code_num': code_num / len(logging_outputs),
+            'code_num': code_num / len(logging_outputs) if len(logging_outputs) > 0 else 0,
         }
 
         if len(logging_outputs) > 0 and 'word_nll_loss' in logging_outputs[0]:
