@@ -88,7 +88,7 @@ class Quantize(nn.Module):
             return self.min_temp
         return self.min_temp if updates >= self.anneal_steps else ((updates * 1.0 / self.anneal_steps) * self.diff_temp + self.min_temp)
 
-    def forward(self, input, input_mask, updates=-1, prefix=""):
+    def forward(self, input, input_mask, updates=-1, prefix="", extract_code_only=False):
         '''
         :param input: T x batch x C, number of channels: dimension C
         :param input_mask: T x batch
@@ -116,13 +116,17 @@ class Quantize(nn.Module):
             most_attend_codes = sorted_indices[:self.most_attend_k]
             dist = dist.index_fill_(1, most_attend_codes, float('inf'))
 
-        if self.soft and self.training:
+        if self.soft:
             tau = self.get_temperature(updates)
             embed_ind = torch.multinomial(F.softmax(-dist / tau, -1), self.samples, replacement=True)  # S x samples
+            if extract_code_only:
+                return embed_ind
             embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten).mean(1)  # S x samples x K -> S x K
             quantize = (embed_onehot @ embed.transpose(0, 1)).view(input.size(0), input.size(1), self.dim)
         else:
             _, embed_ind = (-dist).max(1)  # S
+            if extract_code_only:
+                return embed_ind
             embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten)  # S x K
             quantize = self.embed_code(embed_ind.view(*input.shape[:-1]))  # T X batch x C
 
@@ -599,6 +603,9 @@ class VQVAE(FairseqLanguageModel):
     def forward(self, decoder_tokens, lengths, full_tokens, update_steps, **kwargs):
         mask, diff, quantize_out, quantize_stats, codes = self.forward_encoder(full_tokens, lengths, update_steps)
 
+        if self.args.use_word_predict:
+            return None, diff, quantize_stats, mask.sum().type_as(diff), codes, quantize_out['word_predict'], None
+
         code_prior = {'code_prior_logits': quantize_out['code_prior_logits'] if self.code_prior is not None else None,
                       'code_prior_gold': quantize_out['code_prior_gold'] if self.code_prior is not None else None,}
         if self.code_prior is not None:
@@ -612,7 +619,7 @@ class VQVAE(FairseqLanguageModel):
         logits = decoder_out[0]
         return logits, diff, quantize_stats, mask.sum().type_as(diff), codes, quantize_out['word_predict'], code_prior
 
-    def forward_encoder(self, full_tokens, lengths, update_steps=-1, extrac_code_only=False):
+    def forward_encoder(self, full_tokens, lengths, update_steps=-1, extract_code_only=False):
         """
                 output of text encoder
                 {
@@ -661,7 +668,14 @@ class VQVAE(FairseqLanguageModel):
             text_conv_out = F.dropout(text_conv_out, p=self.encoder_opt_dropout, training=self.training)
 
         word_predict = None
-        if self.bottom_quantizer is not None and (update_steps > self.pretrain_steps or not self.training):
+        if self.bottom_quantizer is not None:
+            if extract_code_only:
+                # mask set pads to be 0
+                # S x K / S
+                embed_ind = self.bottom_quantizer(text_conv_out, mask.transpose(0, 1).contiguous(), updates=-1, extract_code_only=True)
+                mask = ~mask.transpose(0, 1).flatten() if embed_ind.dim == 1 else ~mask.transpose(0, 1).flatten().unsqueeze(-1)
+                embed_ind = embed_ind.masked_fill(mask, -1)
+                return embed_ind
             # diff is the loss to update the enocder
             # quantize: masked T X batch x C; diff: scalar; embed_ind: T x batch
             quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out,
@@ -681,26 +695,12 @@ class VQVAE(FairseqLanguageModel):
                 prior_logits = None
                 prior_pesudo_gold = None
 
-            # assume currently we are using deconv, so the input are padded to be multiple times of the shrink_ratio + 1
-            if self.training and self.aug_loss == 'code_bow':
-                # T' x batch x C -> batch x T x C
-                T_prime, batch_size, D = quantize.size()
-                expand_quantize = quantize.transpose(0, 1).unsqueeze(2).expand(batch_size, T_prime, self.shrink_ratio, D).reshape(batch_size, -1, D)
-                expand_quantize = expand_quantize[:, :max_len, :]  # B x T x C
-                code_index = torch.arange(max_len).unsqueeze(0).type_as(full_tokens) % self.shrink_ratio
-                pos_emb = self.latent_positional_embedding(code_index)  # 1 x T x C
-                expand_quantize = pos_emb + expand_quantize
-                if self.share_emb:
-                    word_predict = F.linear(expand_quantize, self.decoder.embed_tokens.weight)
-                else:
-                    word_predict = F.linear(expand_quantize, self.word_predict_out)
-
-            if self.args.use_deconv and not extrac_code_only:
+            if self.args.use_deconv:
                 deconv_output = self.text_conv_encoder(quantize.permute(1, 2, 0), lengths, pad_num,
                                                        full_tokens.ne(self.pad_index))
                 quantize = deconv_output.transpose(1, 2)[:, :max_len, :]  # B x T x C
 
-                if self.training and self.aug_loss == 'deconv_predict':
+                if self.training and self.args.use_word_predict == 'deconv_predict':
                     if self.share_emb:
                         word_predict = F.linear(quantize, self.decoder.embed_tokens.weight)
                     else:
@@ -749,8 +749,11 @@ class VQVAE(FairseqLanguageModel):
             quantize_out['global_quantize'] = torch.cat(gquants, dim=-1)
 
         if not self.training:
-            embed_ind = embed_ind.view(*text_conv_out.shape[:-1])  # T x batch
-            codes = {'bottom_codes': embed_ind.transpose(0, 1).masked_fill(~mask, -1)}
+            mask = ~mask.transpose(0, 1).flatten() if embed_ind.dim == 1 else ~mask.transpose(0, 1).flatten().unsqueeze(
+                -1)  # T x batch
+            embed_ind = embed_ind.masked_fill(mask, -1)  # S x K / S
+            # codes: batch x T x k -> k = #samples / 1(argmax)
+            codes = {'bottom_codes': embed_ind.view(text_conv_out.size(0), text_conv_out.size(0), -1).transpose(0, 1)}
             if self.global_quantizer is not None:
                 codes['global_codes'] = gids
         else:
@@ -796,7 +799,7 @@ class VQVAE(FairseqLanguageModel):
                 encoder_out['encoder_states'][idx] = state.index_select(1, new_order)
         return encoder_out
 
-    def quantization(self, codes, code_mask, global_codes=None, extract_codes_only=False):
+    def quantization(self, codes, code_mask, global_codes=None):
         # codes: batch x T; code_mask: batch x T; mask here sets pad to be True
         # global_codes: batch
         quantize = self.bottom_quantizer.embed_code(codes)  # batch x T x dim
@@ -808,7 +811,7 @@ class VQVAE(FairseqLanguageModel):
             quantize = torch.cat([global_quantize, quantize], dim=0)
             code_mask = torch.cat([dummy_mask.transpose(0, 1), code_mask], dim=1)
 
-        if self.args.use_deconv and not extract_codes_only:
+        if self.args.use_deconv:
             valid = ~code_mask
             lengths = (torch.sum(valid, dim=1).long() - 1) * self.shrink_ratio + 1
             max_length = torch.max(lengths).item()

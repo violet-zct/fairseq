@@ -179,7 +179,10 @@ def main(args, override_args=None):
                                 remove_bpe=args.remove_bpe,
                             )
                             fopt.write('H-{}\t{}\t{}\n'.format(sample_id, hypo['score'], hypo_str))
-                            fopt.write('C-{}\n'.format(" ".join(["c-%d" % kk for kk in code if kk != -1])))
+                            code_str = ""
+                            for ii, token_code in enumerate(code):
+                                code_str = " ".join(["c{}-{}".format(ii, kk) for kk in token_code if kk != -1]) + ' '
+                            fopt.write('C-{}\n'.format(code_str))
                             if hypo['attention'] is not None:
                                 hypo_attn = hypo['attention'].cpu().numpy()  # src_len x tgt_len
                                 entropy, max_idx = compute_attn(hypo_attn)

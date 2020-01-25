@@ -164,14 +164,11 @@ class TransformerContextModel(FairseqEncoderDecoderModel):
 
         if hasattr(args, 'codebook_size'):
             if args.encode_code:
-                code_embed_tokens = Embedding(args.codebook_size, args.encoder_embed_dim, 0,
-                                              weight=task.ctx_model.bottom_quantizer.embed.transpose(0, 1))
+                code_embed_tokens = nn.Parameter(task.ctx_model.bottom_quantizer.embed.transpose(0, 1), requires_grad=not args.fix_code_book)
             else:
-                code_embed_tokens = Embedding(args.codebook_size, args.encoder_embed_dim, 0)
-            if args.fix_code_book:
-                code_embed_tokens.weight.requires_grad = False
-            else:
-                code_embed_tokens.weight.requires_grad = True
+                dim = task.ctx_model.bottom_quantizer.dim
+                n_embed = task.ctx_model.bottom_quantizer.n_embed
+                code_embed_tokens = nn.Parameter(torch.normal(mean=0, std=dim ** -0.5, size=(n_embed, dim)), requires_grad=True)
         else:
             code_embed_tokens = None
 
@@ -286,6 +283,8 @@ class TransformerEncoderWithContext(TransformerEncoder):
             self.layer_norm = None
 
         self.code_embed_tokens = code_embed_tokens
+        if code_embed_tokens is not None:
+            self.code_vocab_size, self.code_dim = code_embed_tokens.size(0), code_embed_tokens.size(1)
 
         self.input_form = args.input_form
         self.context_form = args.context_form
@@ -325,12 +324,20 @@ class TransformerEncoderWithContext(TransformerEncoder):
         x = F.dropout(x, p=self.dropout, training=self.training)
         return x, embed
 
-    def forward_embedding_sep(self, src_tokens, seg_pos=-1, mask=None):
+    def forward_embedding_sep(self, src_tokens, seg_pos=-1, mask=None, batch_size=-1):
         # embed tokens and positions
         if seg_pos == 0 or self.code_embed_tokens is None:
             embed = self.embed_scale * self.embed_tokens(src_tokens)
         else:
-            embed = self.embed_scale * self.code_embed_tokens(src_tokens)
+            # context: S x K / S: S = T x batch
+            if src_tokens.dim() == 2:
+                embed_onehot = F.one_hot(src_tokens, self.code_vocab_size).type_as(src_tokens).mean(1)  # S x K x |V| -> S x |V|
+                embed = (embed_onehot @ self.code_embed_tokens).view(-1, batch_size, self.code_dim)
+            else:
+                embed = F.embedding(src_tokens, self.code_embed_tokens).view(-1, batch_size, self.code_dim)
+            embed = embed * mask.unsqueeze(-1)
+            embed = self.embed_scale * embed
+
         if self.embed_positions is not None:
             x = embed + self.embed_positions(src_tokens)
         if self.use_seg_pos_emb:
@@ -372,13 +379,15 @@ class TransformerEncoderWithContext(TransformerEncoder):
             return_all_hiddens = True
 
         if self.input_form == 'cat':
+            # todo: this branch is deserted
             assert (src_mask.sum(1).type_as(context_lengths) == context_lengths).all()
             x, encoder_embedding = self.forward_embedding(src_tokens, src_mask, context)
             # compute padding mask
             encoder_padding_mask = src_tokens.masked_fill(src_mask, self.padding_idx + 1).eq(self.padding_idx)
         else:
             x, encoder_embedding = self.forward_embedding_sep(src_tokens, seg_pos=0)
-            context, _ = self.forward_embedding_sep(context, seg_pos=1, mask=context_mask)
+            # context: S x K / S: S = T x batch
+            context, _ = self.forward_embedding_sep(context, seg_pos=1, mask=context_mask, batch_size=x.size(0))
             encoder_padding_mask = src_tokens.eq(self.padding_idx)
             context = context.transpose(0, 1)
 
