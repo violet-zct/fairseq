@@ -587,13 +587,11 @@ class Trainer(object):
             doc_input = sample['net_input']['context'].cuda()
             doc_lengths = doc_input.ne(self.task.ctx_dict.pad()).sum(1).cuda()
             with torch.no_grad():
-                code_mask, _, quantize_out, _, codes = self.task.ctx_model.forward_encoder(doc_input,
-                                                                                 doc_lengths,
-                                                                                 extrac_code_only=True)
-                context = codes['bottom_codes'].to(device)  # B x T'
-                sample['net_input']['context_mask'] = context.eq(-1)
-                context[context.eq(-1)] = self.task.src_dict.pad()
-                sample['net_input']['context'] = context
+                codes = self.task.ctx_model.forward_encoder(doc_input, doc_lengths, extract_code_only=True)
+                codes = codes.to(device)  # S x K / S: S = T x batch
+                sample['net_input']['context_mask'] = codes.eq(-1)[:, 0].view(-1, doc_input.size(0))
+                codes[codes.eq(-1)] = self.task.src_dict.pad()
+                sample['net_input']['context'] = codes
         torch.cuda.empty_cache()
         return sample
 

@@ -753,7 +753,7 @@ class VQVAE(FairseqLanguageModel):
                 -1)  # T x batch
             embed_ind = embed_ind.masked_fill(mask, -1)  # S x K / S
             # codes: batch x T x k -> k = #samples / 1(argmax)
-            codes = {'bottom_codes': embed_ind.view(text_conv_out.size(0), text_conv_out.size(0), -1).transpose(0, 1)}
+            codes = {'bottom_codes': embed_ind.view(text_conv_out.size(0), text_conv_out.size(1), -1).transpose(0, 1)}
             if self.global_quantizer is not None:
                 codes['global_codes'] = gids
         else:
