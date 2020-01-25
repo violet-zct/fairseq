@@ -162,16 +162,6 @@ class TransformerContextModel(FairseqEncoderDecoderModel):
                 utils.load_embedding(embed_dict, dictionary, emb)
             return emb
 
-        if hasattr(args, 'codebook_size'):
-            if args.encode_code:
-                code_embed_tokens = nn.Parameter(task.ctx_model.bottom_quantizer.embed.transpose(0, 1), requires_grad=not args.fix_code_book)
-            else:
-                dim = task.ctx_model.bottom_quantizer.dim
-                n_embed = task.ctx_model.bottom_quantizer.n_embed
-                code_embed_tokens = nn.Parameter(torch.normal(mean=0, std=dim ** -0.5, size=(n_embed, dim)), requires_grad=True)
-        else:
-            code_embed_tokens = None
-
         if args.share_all_embeddings:
             if src_dict != tgt_dict:
                 raise ValueError('--share-all-embeddings requires a joined dictionary')
@@ -194,7 +184,8 @@ class TransformerContextModel(FairseqEncoderDecoderModel):
                 tgt_dict, args.decoder_embed_dim, args.decoder_embed_path
             )
 
-        encoder = cls.build_encoder(args, src_dict, encoder_embed_tokens, code_embed_tokens)
+        code_embed_init = task.ctx_model.bottom_quantizer.embed.transpose(0, 1) if hasattr(args, 'codebook_size') else None
+        encoder = cls.build_encoder(args, src_dict, encoder_embed_tokens, code_embed_init)
         decoder = cls.build_decoder(args, tgt_dict, decoder_embed_tokens)
         return cls(encoder, decoder)
 
@@ -252,7 +243,7 @@ class TransformerEncoderWithContext(TransformerEncoder):
         embed_tokens (torch.nn.Embedding): input embedding
     """
 
-    def __init__(self, args, dictionary, embed_tokens, code_embed_tokens=None):
+    def __init__(self, args, dictionary, embed_tokens, code_embed_tokens_init=None):
         super().__init__(args, dictionary, embed_tokens)
         self.register_buffer('version', torch.Tensor([3]))
 
@@ -282,13 +273,19 @@ class TransformerEncoderWithContext(TransformerEncoder):
         else:
             self.layer_norm = None
 
-        self.code_embed_tokens = code_embed_tokens
-        if code_embed_tokens is not None:
-            self.code_vocab_size, self.code_dim = code_embed_tokens.size(0), code_embed_tokens.size(1)
+        if code_embed_tokens_init is not None:
+            self.code_vocab_size, self.code_dim = code_embed_tokens_init.size(0), code_embed_tokens_init.size(1)
+            if args.encode_code:
+                self.code_embed_tokens = nn.Parameter(code_embed_tokens_init, requires_grad=not args.fix_code_book)
+            else:
+                self.code_embed_tokens = nn.Parameter(torch.normal(mean=0, std=self.code_dim ** -0.5,
+                                                                   size=(self.code_vocab_size, self.code_dim)), requires_grad=True)
             self.code_embed_positions = PositionalEmbedding(
-                args.max_source_positions//2, embed_dim, self.code_vocab_size,
+                args.max_source_positions // 2, embed_dim, self.code_vocab_size,
                 learned=args.encoder_learned_pos,
             ) if not args.no_token_positional_embeddings else None
+        else:
+            self.code_embed_tokens = None
 
         self.input_form = args.input_form
         self.context_form = args.context_form
