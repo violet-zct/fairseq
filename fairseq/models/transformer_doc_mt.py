@@ -324,22 +324,23 @@ class TransformerEncoderWithContext(TransformerEncoder):
         x = F.dropout(x, p=self.dropout, training=self.training)
         return x, embed
 
-    def forward_embedding_sep(self, src_tokens, seg_pos=-1, mask=None, batch_size=-1):
+    def forward_embedding_sep(self, src_tokens, seg_pos=-1, mask=None, batch_size=-1, type_as_tensor=None):
         # embed tokens and positions
         if seg_pos == 0 or self.code_embed_tokens is None:
             embed = self.embed_scale * self.embed_tokens(src_tokens)
         else:
             # context: S x K / S: S = T x batch
             if src_tokens.dim() == 2:
-                embed_onehot = F.one_hot(src_tokens, self.code_vocab_size).type_as(src_tokens).mean(1)  # S x K x |V| -> S x |V|
+                embed_onehot = F.one_hot(src_tokens, self.code_vocab_size).type_as(type_as_tensor).mean(1)  # S x K x |V| -> S x |V|
                 embed = (embed_onehot @ self.code_embed_tokens).view(-1, batch_size, self.code_dim)
+                src_tokens = src_tokens[:, 0].view(-1, batch_size)
             else:
-                embed = F.embedding(src_tokens, self.code_embed_tokens).view(-1, batch_size, self.code_dim)
-            embed = embed * mask.unsqueeze(-1)
+                src_tokens = src_tokens.view(-1, batch_size)
+                embed = F.embedding(src_tokens, self.code_embed_tokens)
+            embed = embed * mask.type_as(embed).unsqueeze(-1)
             embed = self.embed_scale * embed
 
-        if self.embed_positions is not None:
-            x = embed + self.embed_positions(src_tokens)
+        x = embed + self.embed_positions(src_tokens)
         if self.use_seg_pos_emb:
             if mask is None:
                 masked_src_tokens = src_tokens.masked_fill(src_tokens.ne(self.padding_idx), seg_pos)
@@ -387,7 +388,7 @@ class TransformerEncoderWithContext(TransformerEncoder):
         else:
             x, encoder_embedding = self.forward_embedding_sep(src_tokens, seg_pos=0)
             # context: S x K / S: S = T x batch
-            context, _ = self.forward_embedding_sep(context, seg_pos=1, mask=context_mask, batch_size=x.size(0))
+            context, _ = self.forward_embedding_sep(context, seg_pos=1, mask=context_mask, batch_size=x.size(0), type_as_tensor=x)
             encoder_padding_mask = src_tokens.eq(self.padding_idx)
             context = context.transpose(0, 1)
 
@@ -419,7 +420,7 @@ class TransformerEncoderWithContext(TransformerEncoder):
 
         if self.input_form == 'sep':
             output['bi_context'] = context
-            output['bi_context_padding_mask'] = context_mask
+            output['bi_context_padding_mask'] = context_mask.transpose(0, 1)
         return output
 
 
