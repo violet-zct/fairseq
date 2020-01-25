@@ -675,7 +675,10 @@ class VQVAE(FairseqLanguageModel):
                 embed_ind = self.bottom_quantizer(text_conv_out, mask.transpose(0, 1).contiguous(), updates=-1, extract_code_only=True)
                 mask = ~mask.transpose(0, 1).flatten() if embed_ind.dim == 1 else ~mask.transpose(0, 1).flatten().unsqueeze(-1)
                 embed_ind = embed_ind.masked_fill(mask, -1)
-                return embed_ind
+                if embed_ind.dim() == 2:
+                    return embed_ind.view(-1, full_tokens.size(0), embed_ind.size(-1)).transpose(0, 1)
+                else:
+                    return embed_ind.view(-1, full_tokens.size(0), 1).transpose(0, 1)
             # diff is the loss to update the enocder
             # quantize: masked T X batch x C; diff: scalar; embed_ind: T x batch
             quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out,

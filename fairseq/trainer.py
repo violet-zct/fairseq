@@ -588,9 +588,11 @@ class Trainer(object):
             doc_lengths = doc_input.ne(self.task.ctx_dict.pad()).sum(1).cuda()
             with torch.no_grad():
                 codes = self.task.ctx_model.forward_encoder(doc_input, doc_lengths, extract_code_only=True)
-                codes = codes.to(device)  # S x K / S: S = T x batch
-                sample['net_input']['context_mask'] = codes.eq(-1)[:, 0].view(-1, doc_input.size(0))
-                codes[codes.eq(-1)] = self.task.src_dict.pad()
+                # argmax case: B x T x 1
+                # soft case: B x T x K
+                codes = codes.to(device)
+                sample['net_input']['context_mask'] = codes.eq(-1)[:, :, 0]  # B x T
+                codes[codes.eq(-1)] = self.args.codebook_size
                 sample['net_input']['context'] = codes
         torch.cuda.empty_cache()
         return sample
