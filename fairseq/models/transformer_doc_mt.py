@@ -336,6 +336,7 @@ class TransformerEncoderWithContext(TransformerEncoder):
         else:
             # context: B x T x K / B x T x 1
             src_tokens_flatten = src_tokens.view(-1, src_tokens.size(-1))  # S x K / S x 1
+            src_tokens_flatten.masked_fill_(mask.flatten().unsqueeze(1), 0)
             embed_onehot = F.one_hot(src_tokens_flatten, self.code_vocab_size).type_as(type_as_tensor).mean(1)  # S x K x |V| -> S x |V|
             embed = (embed_onehot @ self.code_embed_tokens).view(src_tokens.size(0), src_tokens.size(1), self.code_dim)  # B x T x C
             embed = embed * mask.type_as(embed).unsqueeze(-1)
