@@ -336,7 +336,7 @@ class TransformerEncoderWithContext(TransformerEncoder):
             src_tokens_flatten.masked_fill_(mask.flatten().unsqueeze(1), 0)
             embed_onehot = F.one_hot(src_tokens_flatten, self.code_vocab_size).type_as(type_as_tensor).mean(1)  # S x K x |V| -> S x |V|
             embed = (embed_onehot @ self.code_embed_tokens).view(src_tokens.size(0), src_tokens.size(1), self.code_dim)  # B x T x C
-            embed = embed * mask.type_as(embed).unsqueeze(-1)
+            embed = embed * (~mask).type_as(embed).unsqueeze(-1)
             embed = self.embed_scale * embed
             src_tokens = src_tokens[:, :, 0]
             x = embed + self.code_embed_positions(src_tokens)
@@ -346,7 +346,7 @@ class TransformerEncoderWithContext(TransformerEncoder):
                 masked_src_tokens = src_tokens.masked_fill(src_tokens.ne(self.padding_idx), seg_pos)
                 masked_src_tokens = masked_src_tokens.masked_fill(src_tokens.eq(self.padding_idx), self.seg_pad_idx)
             else:
-                masked_src_tokens = src_tokens.masked_fill(~mask, seg_pos)
+                masked_src_tokens = src_tokens.masked_fill(~mask, seg_pos)  # mask set pad to be True
                 masked_src_tokens = masked_src_tokens.masked_fill(mask, self.seg_pad_idx)
             x = x + self.embed_scale * self.seg_pos_emb(masked_src_tokens)
         x = F.dropout(x, p=self.dropout, training=self.training)
