@@ -129,6 +129,7 @@ def main(args, override_args=None):
             log_outputs = []
             wps_meter = TimeMeter()
             all_codes = set()
+            all_stats = []
             for jj, sample in enumerate(progress):
                 sample = utils.move_to_cuda(sample) if use_cuda else sample
                 log_output = {'sample_size': sample['target'].size(0)}
@@ -143,7 +144,9 @@ def main(args, override_args=None):
                 elif eval_task == 'reconstruct':
                     prefix_tokens = None if args.prefix_num == 0 else sample['target'][:, :args.prefix_num]
                     gen_timer.start()
-                    hypos, codes = task.reconstruct(sample, model, generator, prefix_tokens)
+                    hypos, codes, stats = task.reconstruct(sample, model, generator, prefix_tokens)
+                    if 'avg_topp' in stats:
+                        all_stats.append(stats)
                     all_codes.update(torch.unique(codes).tolist())
                     num_generated_tokens = sum(len(h[0]['tokens']) for h in hypos)
                     gen_timer.stop(num_generated_tokens)
@@ -181,7 +184,7 @@ def main(args, override_args=None):
                             fopt.write('H-{}\t{}\t{}\n'.format(sample_id, hypo['score'], hypo_str))
                             code_str = ""
                             for ii, token_code in enumerate(code):
-                                code_str = " ".join(["c{}-{}".format(ii, kk) for kk in token_code if kk != -1]) + ' '
+                                code_str += " ".join(["c{}-{}".format(ii, kk) for kk in token_code if kk != -1]) + ' '
                             fopt.write('C-{}\n'.format(code_str))
                             if hypo['attention'] is not None:
                                 hypo_attn = hypo['attention'].cpu().numpy()  # src_len x tgt_len
@@ -205,6 +208,11 @@ def main(args, override_args=None):
                     print("Processed {} lines!".format(i))
                 progress.print(log_outputs[0], tag=subset, step=i)
             print("Total unique active codes = {}".format(len(all_codes)))
+            if len(all_stats) > 0:
+                avg_topp = sum([stat['avg_topp'] for stat in all_stats]) * 1. / len(all_stats)
+                max_topp = sum([stat['max_topp'] for stat in all_stats]) * 1. / len(all_stats)
+                min_topp = sum([stat['min_topp'] for stat in all_stats]) * 1. / len(all_stats)
+                print('Max #codes in top 0.9 = {}, min #codes in top 0.9 = {}, avg #codes in top 0.9 = {}'.format(max_topp, min_topp, avg_topp))
         if eval_task == 'reconstruct':
             print('| Reconstructed {} sentences ({} tokens) in {:.1f}s ({:.2f} sentences/s, {:.2f} tokens/s)'.format(
                 num_sentences, gen_timer.n, gen_timer.sum, num_sentences / gen_timer.sum, 1. / gen_timer.avg))
@@ -243,7 +251,7 @@ def main(args, override_args=None):
             )
             code_masks = merged_codes.eq(latent_dictionary_size)
             merged_codes = merged_codes.masked_fill_(code_masks, 0)
-            hypos, _ = task.sampling(dummy_samples, merged_codes, code_masks, model, generator)
+            hypos, _, _ = task.sampling(dummy_samples, merged_codes, code_masks, model, generator)
             for tt in range(len(hypos)):
                 hypo = hypos[tt][0]
                 hypo_tokens, hypo_str, alignment = utils.post_process_prediction(

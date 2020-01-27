@@ -587,12 +587,11 @@ class Trainer(object):
             doc_input = sample['net_input']['context'].cuda()
             doc_lengths = doc_input.ne(self.task.ctx_dict.pad()).sum(1).cuda()
             with torch.no_grad():
-                codes = self.task.ctx_model.forward_encoder(doc_input, doc_lengths, extract_code_only=True)
-                # argmax case: B x T x 1
-                # soft case: B x T x K
+                codes, mask = self.task.ctx_model.forward_encoder(doc_input, doc_lengths, extract_code_only=True,
+                                                            code_extract_strategy=getattr(self.args, 'code_extract_strategy', None))
+                # codes are weighted one_hot matrix: B x T x |V|
                 codes = codes.to(device)
-                sample['net_input']['context_mask'] = codes.eq(-1)[:, :, 0]  # B x T
-                codes[codes.eq(-1)] = self.args.codebook_size
+                sample['net_input']['context_mask'] = ~mask  # B x T, set pad to be True
                 sample['net_input']['context'] = codes
         torch.cuda.empty_cache()
         return sample

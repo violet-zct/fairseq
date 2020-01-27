@@ -46,6 +46,40 @@ def print_stats(stats):
         print("{} = {}".format(k, v.item()))
 
 
+def sample_topp(probs, sampling_topp=0.9):
+    """
+    Args:
+        lprobs: (T x bsz x vocab_size) the model's log-probabilities over the vocabulary at the current step
+    Return: A tuple of (trimed_probs, truncated_indices) where:
+        trimed_probs: (bsz x input_beam_size x ?)
+            the model's probabilities over the elements selected to sample from. The
+            width of the third dimension is determined by top-P.
+        truncated_indices: (bsz x input_beam_size x ?)
+            the indices of the chosen elements.
+    """
+    # sort the last dimension (vocab dimension) in descending order
+    sorted_probs, sorted_indices = probs.sort(descending=True)
+    # compute a mask to indicate the words to be included in the top-P set.
+    cumsum_probs = sorted_probs.cumsum(dim=-1)
+    mask = cumsum_probs.lt(sampling_topp)
+    # note that mask was computed by 'lt'. One more word needs to be included
+    # so that the cumulative probability mass can exceed p.
+    cumsum_mask = mask.cumsum(dim=-1)
+    last_included = cumsum_mask[:, -1:]
+    last_included.clamp_(0, mask.size()[-1] - 1)
+    mask = mask.scatter_(-1, last_included, 1)
+    # truncate unnecessary dims.
+    max_dim = last_included.max()
+    truncated_mask = mask[:, :max_dim + 1]
+    truncated_probs = sorted_probs[:, :max_dim + 1]
+    truncated_indices = sorted_indices[:, :max_dim + 1]
+    # trim the words that are not in top-P by setting their probabilities
+    # to 0, so that they would not be sampled later.
+    trim_mask = (~truncated_mask)
+    trimed_probs = truncated_probs.masked_fill_(trim_mask, 0)
+    return trimed_probs, truncated_indices, truncated_mask
+
+
 class Quantize(nn.Module):
     def __init__(self, args, dim, n_embed, decay=0.99, eps=1e-5, param_emb=False):
         super().__init__()
@@ -88,7 +122,7 @@ class Quantize(nn.Module):
             return self.min_temp
         return self.min_temp if updates >= self.anneal_steps else ((updates * 1.0 / self.anneal_steps) * self.diff_temp + self.min_temp)
 
-    def forward(self, input, input_mask, updates=-1, prefix="", extract_code_only=False):
+    def forward(self, input, input_mask, updates=-1, prefix="", extract_code_only=False, code_extract_strategy=None):
         '''
         :param input: T x batch x C, number of channels: dimension C
         :param input_mask: T x batch
@@ -116,32 +150,33 @@ class Quantize(nn.Module):
             most_attend_codes = sorted_indices[:self.most_attend_k]
             dist = dist.index_fill_(1, most_attend_codes, float('inf'))
 
+        stats = {}
         if self.soft:
             tau = self.get_temperature(updates)
-            embed_ind = torch.multinomial(F.softmax(-dist / tau, -1), self.samples, replacement=True)  # S x samples
+            probs = F.softmax(-dist / tau, -1)
+            if self.training or code_extract_strategy is None or code_extract_strategy == 'soft':
+                embed_ind = torch.multinomial(probs, self.samples, replacement=True)  # S x samples
+                embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten).mean(1)  # S x samples x K -> S x K
+            elif not self.training and code_extract_strategy == 'topp':
+                trimed_probs, embed_ind, topp_mask = sample_topp(probs, sampling_topp=0.9)  # embed_ind: S x ?
+                trimed_probs = trimed_probs / trimed_probs.sum(-1).unsqueeze(-1)
+                embed_onehot = F.one_hot(embed_ind, self.n_embed) * (trimed_probs.unsqueeze(-1))  # S x ? x K
+                embed_onehot = embed_onehot.sum(1)  # S x K
+                stats['avg_topp'] = topp_mask.sum() * 1.0 / input.size(1)
+                stats['max_topp'] = topp_mask.sum(1).max()
+                stats['min_topp'] = topp_mask.sum(1).min()
+            elif not self.training and code_extract_strategy == 'argmax':
+                _, embed_ind = (-dist).max(1)  # S
+                embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten)  # S x K
             if extract_code_only:
-                return embed_ind
-            embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten).mean(1)  # S x samples x K -> S x K
+                return embed_onehot
             quantize = (embed_onehot @ embed.transpose(0, 1)).view(input.size(0), input.size(1), self.dim)
         else:
             _, embed_ind = (-dist).max(1)  # S
-            if extract_code_only:
-                return embed_ind
             embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten)  # S x K
+            if extract_code_only:
+                return embed_onehot
             quantize = self.embed_code(embed_ind.view(*input.shape[:-1]))  # T X batch x C
-
-        # todo: this is for debugging, comment it later
-        stats = {}
-        # batch = embed_ind.size(1)
-        # lengths = torch.sum(input_mask, dim=0)
-        # avg = input.new_zeros((batch))
-        # masked_embed_inds = embed_ind * input_mask.type_as(embed_ind) + torch.ones_like(embed_ind) * -1 * (1 - input_mask.type_as(embed_ind))
-        # for ii in range(batch):
-        #     avg[ii] = len(torch.unique(masked_embed_inds[:, ii])) - 1
-        # tot_unique_per_batch = len(torch.unique(masked_embed_inds)) - 1
-        # avg_unique_per_example = torch.sum(avg / lengths.type_as(avg)) / batch
-        # stats['tot unique latents per batch'] = tot_unique_per_batch
-        # stats['avg unique latents per example'] = avg_unique_per_example
 
         effective_units = 1.0 / embed_onehot[input_mask.view(-1)].mean(0).pow(2).sum()
         stats[prefix + 'effective latents per batch'] = effective_units
@@ -171,9 +206,6 @@ class Quantize(nn.Module):
 
                 with torch.no_grad():
                     self.embed.data.copy_(embed_normalized)
-
-            # stats[prefix + 'moving_avg_cluster_mean'] = torch.mean(self.cluster_size)
-            # stats[prefix + 'moving_avg_cluster_var'] = torch.var(self.cluster_size)
 
         input_mask = input_mask.type_as(input)
         quantize = quantize * input_mask.unsqueeze(-1)
@@ -403,6 +435,8 @@ class VQVAE(FairseqLanguageModel):
         # use word-prediction as decoder on top of the deconv
         parser.add_argument('--use-word-predict', type=int, default=0)
         parser.add_argument('--disable-mea', type=int, default=0)
+        parser.add_argument('--code-extract-strategy', type=str, default=None,
+                            help=['soft', 'argmax', 'topp'])
 
     @classmethod
     def build_model(cls, args, task):
@@ -619,7 +653,7 @@ class VQVAE(FairseqLanguageModel):
         logits = decoder_out[0]
         return logits, diff, quantize_stats, mask.sum().type_as(diff), codes, quantize_out['word_predict'], code_prior
 
-    def forward_encoder(self, full_tokens, lengths, update_steps=-1, extract_code_only=False):
+    def forward_encoder(self, full_tokens, lengths, update_steps=-1, extract_code_only=False, code_extract_strategy=None):
         """
                 output of text encoder
                 {
@@ -672,18 +706,15 @@ class VQVAE(FairseqLanguageModel):
             if extract_code_only:
                 # mask set pads to be 0
                 # S x K / S
-                embed_ind = self.bottom_quantizer(text_conv_out, mask.transpose(0, 1).contiguous(), updates=-1, extract_code_only=True)
-                mask = ~mask.transpose(0, 1).flatten() if embed_ind.dim == 1 else ~mask.transpose(0, 1).flatten().unsqueeze(-1)
-                embed_ind = embed_ind.masked_fill(mask, -1)
-                if embed_ind.dim() == 2:
-                    return embed_ind.view(-1, full_tokens.size(0), embed_ind.size(-1)).transpose(0, 1)
-                else:
-                    return embed_ind.view(-1, full_tokens.size(0), 1).transpose(0, 1)
+                embed_onehot = self.bottom_quantizer(text_conv_out, mask.transpose(0, 1).contiguous(), updates=-1,
+                                                  extract_code_only=True, code_extract_strategy=code_extract_strategy)
+                return embed_onehot.view(-1, full_tokens.size(0), self.bottom_quantizer.n_embed).transpose(0, 1), mask  # B x T' x K
             # diff is the loss to update the enocder
             # quantize: masked T X batch x C; diff: scalar; embed_ind: T x batch
             quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out,
                                                                               mask.transpose(0, 1).contiguous(),
-                                                                              updates=update_steps)
+                                                                              updates=update_steps,
+                                                                              code_extract_strategy=code_extract_strategy)
             if self.code_prior is not None:
                 embed_ind = embed_ind.view(*text_conv_out.shape[:-1])  # T' x batch
                 masked_prior_input = embed_ind.t().masked_fill(~mask, self.args.bottom_latent_k)  # batch x T'
@@ -752,11 +783,10 @@ class VQVAE(FairseqLanguageModel):
             quantize_out['global_quantize'] = torch.cat(gquants, dim=-1)
 
         if not self.training:
-            mask = ~mask.transpose(0, 1).flatten() if embed_ind.dim == 1 else ~mask.transpose(0, 1).flatten().unsqueeze(
-                -1)  # T x batch
-            embed_ind = embed_ind.masked_fill(mask, -1)  # S x K / S
+            embed_ind = embed_ind.view(text_conv_out.size(0), text_conv_out.size(1), -1)  # T x B x ? (?=1/K/topp)
+            embed_ind = embed_ind.masked_fill(mask.unsqueeze(-1), -1)
             # codes: batch x T x k -> k = #samples / 1(argmax)
-            codes = {'bottom_codes': embed_ind.view(text_conv_out.size(0), text_conv_out.size(1), -1).transpose(0, 1)}
+            codes = {'bottom_codes': embed_ind.transpose(0, 1)}
             if self.global_quantizer is not None:
                 codes['global_codes'] = gids
         else:

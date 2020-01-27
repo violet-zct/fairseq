@@ -67,9 +67,9 @@ class VQVAELanguageModelingTask(LanguageModelingTask):
             emb_inds = codes['bottom_codes']
         return emb_inds
 
-    def reconstruct(self, sample, model, generator, prefix_tokens=None):
+    def reconstruct(self, sample, model, generator, prefix_tokens=None, extract_mode=None):
         with torch.no_grad():
-            return generator.generate([model], sample, prefix_tokens=prefix_tokens)
+            return generator.generate([model], sample, prefix_tokens=prefix_tokens, extract_mode=extract_mode)
 
     def sampling(self, dummy_sample, codes, code_masks, model, generator, prefix_tokens=None):
         with torch.no_grad():

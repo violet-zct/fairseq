@@ -280,10 +280,6 @@ class TransformerEncoderWithContext(TransformerEncoder):
             else:
                 self.code_embed_tokens = nn.Parameter(torch.normal(mean=0, std=self.code_dim ** -0.5,
                                                                    size=(self.code_vocab_size, self.code_dim)), requires_grad=True)
-            self.code_embed_positions = PositionalEmbedding(
-                args.max_source_positions // 2, embed_dim, self.code_vocab_size,
-                learned=args.encoder_learned_pos,
-            ) if not args.no_token_positional_embeddings else None
         else:
             self.code_embed_tokens = None
 
@@ -331,16 +327,14 @@ class TransformerEncoderWithContext(TransformerEncoder):
             embed = self.embed_scale * self.embed_tokens(src_tokens)
             x = embed + self.embed_positions(src_tokens[:])
         else:
-            # context: B x T x K / B x T x 1
-            src_tokens_flatten = src_tokens.view(-1, src_tokens.size(-1))  # S x K / S x 1
-            src_tokens_flatten.masked_fill_(mask.flatten().unsqueeze(1), 0)
-            embed_onehot = F.one_hot(src_tokens_flatten, self.code_vocab_size).type_as(type_as_tensor).mean(1)  # S x K x |V| -> S x |V|
-            embed = (embed_onehot @ self.code_embed_tokens).view(src_tokens.size(0), src_tokens.size(1), self.code_dim)  # B x T x C
+            # context: B x T x |V|
+            embed = (src_tokens.type_as(type_as_tensor) @ self.code_embed_tokens)
             embed = embed * (~mask).type_as(embed).unsqueeze(-1)
             embed = self.embed_scale * embed
-            src_tokens = src_tokens[:, :, 0]
-            x = embed + self.code_embed_positions(src_tokens)
+            src_tokens = torch.ones((src_tokens.size(0), src_tokens.size(1))).long().to(type_as_tensor.device) * 100
+            src_tokens = src_tokens.masked_fill(mask, self.padding_idx)
 
+        x = embed + self.embed_positions(src_tokens)
         if self.use_seg_pos_emb:
             if mask is None:
                 masked_src_tokens = src_tokens.masked_fill(src_tokens.ne(self.padding_idx), seg_pos)

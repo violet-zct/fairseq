@@ -203,6 +203,8 @@ class DocumentTranslationTask(FairseqTask):
                             help='if 1, use the code book of the pretrained vqvae to encode the codes')
         parser.add_argument('--fix-code-book', type=int, default=0)
         parser.add_argument('--window-size', type=int, default=3)
+        parser.add_argument('--code-extract-strategy', type=str, default=None,
+                            help=['soft', 'argmax', 'topp'])
         # fmt: on
 
     def __init__(self, args, src_dict, tgt_dict, ctx_dict, ctx_model):

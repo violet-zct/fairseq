@@ -123,6 +123,7 @@ class VAESequenceGenerator(object):
         global_codes=None,
         prefix_tokens=None,
         bos_token=None,
+        extract_mode=None,
         **kwargs
     ):
         min_len = self.min_len
@@ -142,12 +143,13 @@ class VAESequenceGenerator(object):
         src_len = input_size[1]
         beam_size = self.beam_size
 
+        stats = None  # stats is about the quantization
         if codes is not None:
             assert code_masks is not None
             encoder_outs = model.forward_quantization(codes, code_masks, global_codes)
         else:
             # compute the encoder output for each beam
-            encoder_outs, codes = model.forward_encoder(src_tokens, src_lengths)
+            encoder_outs, codes, stats = model.forward_encoder(src_tokens, src_lengths, extract_mode)
 
         if self.match_source_len:
             max_len = src_lengths.max().item()
@@ -532,7 +534,7 @@ class VAESequenceGenerator(object):
             finalized[sent] = sorted(finalized[sent], key=lambda r: r['score'], reverse=True)
         if isinstance(codes, dict):
             codes = codes['bottom_codes']
-        return finalized, codes
+        return finalized, codes, stats
 
 
 class EnsembleModel(torch.nn.Module):
@@ -553,17 +555,17 @@ class EnsembleModel(torch.nn.Module):
         return min(m.max_decoder_positions() for m in self.models)
 
     @torch.no_grad()
-    def forward_encoder(self, source_tokens, lengths):
+    def forward_encoder(self, source_tokens, lengths, extract_mode=None):
         if not self.has_encoder():
             return None
         encodings = []
         for model in self.models:
-            _, _, encoder_out, _, codes = model.forward_encoder(source_tokens, lengths)
+            _, _, encoder_out, stats, codes = model.forward_encoder(source_tokens, lengths, code_extract_strategy=extract_mode)
             if False and  model.args.use_deconv:
                 x = encoder_out['encoder_out']
                 encoder_out['encoder_out'] = torch.cat([x[:, 1:, :], x.new_zeros(x.size(0), 1, x.size(2))], dim=1)
             encodings.append(encoder_out)
-        return encodings, codes
+        return encodings, codes, stats
 
     @torch.no_grad()
     def forward_quantization(self, codes, code_mask, global_codes=None):
