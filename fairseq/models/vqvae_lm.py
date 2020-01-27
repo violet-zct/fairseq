@@ -786,8 +786,8 @@ class VQVAE(FairseqLanguageModel):
             quantize_out['global_quantize'] = torch.cat(gquants, dim=-1)
 
         if not self.training:
-            embed_ind = embed_ind.view(text_conv_out.size(0), text_conv_out.size(1), -1).transpose(0, 1)  # T x B x ? (?=1/K/topp)
-            embed_ind = embed_ind.masked_fill(mask.unsqueeze(-1), -1)
+            embed_ind = embed_ind.view(text_conv_out.size(0), text_conv_out.size(1), -1).transpose(0, 1)  # B x T x ? (?=1/K/topp)
+            embed_ind = embed_ind.masked_fill(~mask.unsqueeze(-1), -1)
             # codes: batch x T x k -> k = #samples / 1(argmax)
             codes = {'bottom_codes': embed_ind}
             if self.global_quantizer is not None:
