@@ -80,6 +80,10 @@ def main(args, override_args=None):
             prefix = ".sample"
         else:
             prefix = ".bs"
+        if args.code_extract_strategy is not None:
+            prefix = prefix + '.' + args.code_extract_strategy
+        else:
+            prefix += '.orig.sampling'
         if args.prefix_num > 0:
             prefix = prefix + ".prefix_{}".format(args.prefix_num)
         fopt = io.open(os.path.join(args.results_path, args.gen_subset + prefix + ".reconstruction"), "w", encoding='utf-8')

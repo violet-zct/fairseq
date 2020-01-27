@@ -454,7 +454,9 @@ def add_eval_vqvae_args(parser):
     group.add_argument('--num-samples', type=int, default=10000,
                        help='number of samples to be sampled from the prior then generation')
     parser.add_argument('--prefix-num', type=int, default=0)
-
+    # this argument also exists vqvae_lm.py, document_mt.py
+    parser.add_argument('--code-extract-strategy', type=str, default=None,
+                        help=['soft', 'argmax', 'topp'])
 
 def add_eval_lm_args(parser):
     group = parser.add_argument_group('LM Evaluation')
@@ -470,9 +472,6 @@ def add_eval_lm_args(parser):
     group.add_argument('--softmax-batch', default=sys.maxsize, type=int, metavar='N',
                        help='if BxT is more than this, will batch the softmax over vocab to this amount of tokens'
                             ' in order to fit into GPU memory')
-    # this argument also exists vqvae_lm.py, document_mt.py
-    parser.add_argument('--code-extract-strategy', type=str, default=None,
-                        help=['soft', 'argmax', 'topp'])
     # fmt: on
 
 

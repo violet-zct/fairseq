@@ -158,11 +158,13 @@ class Quantize(nn.Module):
                 embed_ind = torch.multinomial(probs, self.samples, replacement=True)  # S x samples
                 embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten).mean(1)  # S x samples x K -> S x K
             elif not self.training and code_extract_strategy == 'topp':
-                trimed_probs, embed_ind, topp_mask = sample_topp(probs, sampling_topp=0.9)  # embed_ind: S x ?
+                trimed_probs, embed_ind, topp_mask = sample_topp(probs, sampling_topp=0.1)  # embed_ind: S x ?
+                trimed_probs = trimed_probs[:, :10]
+                embed_ind = embed_ind[:, :10]
                 trimed_probs = trimed_probs / trimed_probs.sum(-1).unsqueeze(-1)
-                embed_onehot = F.one_hot(embed_ind, self.n_embed) * (trimed_probs.unsqueeze(-1))  # S x ? x K
+                embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(input) * (trimed_probs.unsqueeze(-1))  # S x ? x K
                 embed_onehot = embed_onehot.sum(1)  # S x K
-                stats['avg_topp'] = topp_mask.sum() * 1.0 / input.size(1)
+                stats['avg_topp'] = topp_mask.sum() * 1.0 / flatten.size(0)
                 stats['max_topp'] = topp_mask.sum(1).max()
                 stats['min_topp'] = topp_mask.sum(1).min()
             elif not self.training and code_extract_strategy == 'argmax':
@@ -784,10 +786,10 @@ class VQVAE(FairseqLanguageModel):
             quantize_out['global_quantize'] = torch.cat(gquants, dim=-1)
 
         if not self.training:
-            embed_ind = embed_ind.view(text_conv_out.size(0), text_conv_out.size(1), -1)  # T x B x ? (?=1/K/topp)
+            embed_ind = embed_ind.view(text_conv_out.size(0), text_conv_out.size(1), -1).transpose(0, 1)  # T x B x ? (?=1/K/topp)
             embed_ind = embed_ind.masked_fill(mask.unsqueeze(-1), -1)
             # codes: batch x T x k -> k = #samples / 1(argmax)
-            codes = {'bottom_codes': embed_ind.transpose(0, 1)}
+            codes = {'bottom_codes': embed_ind}
             if self.global_quantizer is not None:
                 codes['global_codes'] = gids
         else:
