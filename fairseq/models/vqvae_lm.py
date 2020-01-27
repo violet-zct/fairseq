@@ -46,7 +46,7 @@ def print_stats(stats):
         print("{} = {}".format(k, v.item()))
 
 
-def sample_topp(probs, sampling_topp=0.9):
+def sample_topp(probs, mask, sampling_topp=0.9):
     """
     Args:
         lprobs: (T x bsz x vocab_size) the model's log-probabilities over the vocabulary at the current step
@@ -57,6 +57,7 @@ def sample_topp(probs, sampling_topp=0.9):
         truncated_indices: (bsz x input_beam_size x ?)
             the indices of the chosen elements.
     """
+    probs[~mask][:, 0] = 1.
     # sort the last dimension (vocab dimension) in descending order
     sorted_probs, sorted_indices = probs.sort(descending=True)
     # compute a mask to indicate the words to be included in the top-P set.
@@ -158,15 +159,22 @@ class Quantize(nn.Module):
                 embed_ind = torch.multinomial(probs, self.samples, replacement=True)  # S x samples
                 embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten).mean(1)  # S x samples x K -> S x K
             elif not self.training and code_extract_strategy == 'topp':
-                trimed_probs, embed_ind, topp_mask = sample_topp(probs, sampling_topp=0.1)  # embed_ind: S x ?
-                trimed_probs = trimed_probs[:, :10]
-                embed_ind = embed_ind[:, :10]
+                trimmed_probs, embed_ind, topp_mask = sample_topp(probs, input_mask.flatten(), sampling_topp=0.9)  # embed_ind: S x ?
+                trimed_probs = trimmed_probs[:, :5]
+                embed_ind = embed_ind[:, :5]
                 trimed_probs = trimed_probs / trimed_probs.sum(-1).unsqueeze(-1)
                 embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(input) * (trimed_probs.unsqueeze(-1))  # S x ? x K
                 embed_onehot = embed_onehot.sum(1)  # S x K
-                stats['avg_topp'] = topp_mask.sum() * 1.0 / flatten.size(0)
-                stats['max_topp'] = topp_mask.sum(1).max()
-                stats['min_topp'] = topp_mask.sum(1).min()
+                #stats['avg_topp'] = topp_mask.sum() * 1.0 / flatten.size(0)
+                #stats['max_topp'] = topp_mask.sum(1).max()
+                #stats['min_topp'] = topp_mask.sum(1).min()
+                #print(trimmed_probs.size())
+                #print(trimmed_probs)
+                #stats['avg_topp_p'] = trimmed_probs.sum() * 1.0 / flatten.size(0)
+                #stats['max_topp_p'] = trimmed_probs[:, 0].max()
+                #stats['min_topp_p'] = trimmed_probs[topp_mask].min()
+                #print(stats)
+                #input()
             elif not self.training and code_extract_strategy == 'argmax':
                 _, embed_ind = (-dist).max(1)  # S
                 embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten)  # S x K
