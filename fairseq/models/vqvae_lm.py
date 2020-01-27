@@ -635,7 +635,8 @@ class VQVAE(FairseqLanguageModel):
         return aug_tokens, mask
 
     def forward(self, decoder_tokens, lengths, full_tokens, update_steps, **kwargs):
-        mask, diff, quantize_out, quantize_stats, codes = self.forward_encoder(full_tokens, lengths, update_steps)
+        mask, diff, quantize_out, quantize_stats, codes = self.forward_encoder(full_tokens, lengths, update_steps,
+                                                                               code_extract_strategy=getattr(self.args, 'code_extract_strategy', None))
 
         if self.args.use_word_predict:
             return None, diff, quantize_stats, mask.sum().type_as(diff), codes, quantize_out['word_predict'], None
