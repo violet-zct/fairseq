@@ -720,7 +720,7 @@ class VQVAE(FairseqLanguageModel):
                 # S x K / S
                 embed_onehot = self.bottom_quantizer(text_conv_out, mask.transpose(0, 1).contiguous(), updates=-1,
                                                   extract_code_only=True, code_extract_strategy=code_extract_strategy)
-                return embed_onehot.view(-1, full_tokens.size(0), self.bottom_quantizer.n_embed).transpose(0, 1), mask  # B x T' x K
+                return embed_onehot.view(text_conv_out.size(0), text_conv_out.size(1), self.bottom_quantizer.n_embed).transpose(0, 1), mask  # B x T' x K
             # diff is the loss to update the enocder
             # quantize: masked T X batch x C; diff: scalar; embed_ind: T x batch
             quantize, diff, embed_ind, quantize_stats = self.bottom_quantizer(text_conv_out,
