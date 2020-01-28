@@ -154,11 +154,12 @@ class Quantize(nn.Module):
         stats = {}
         if self.soft:
             tau = self.get_temperature(updates)
-            probs = F.softmax(-dist / tau, -1)
             if self.training or code_extract_strategy is None or code_extract_strategy == 'soft':
+                probs = F.softmax(-dist / tau, -1)
                 embed_ind = torch.multinomial(probs, self.samples, replacement=True)  # S x samples
                 embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten).mean(1)  # S x samples x K -> S x K
             elif not self.training and code_extract_strategy == 'topp':
+                probs = F.softmax(-dist / tau, -1)
                 trimmed_probs, embed_ind, topp_mask = sample_topp(probs, input_mask.flatten(), sampling_topp=0.9)  # embed_ind: S x ?
                 trimed_probs = trimmed_probs[:, :5]
                 embed_ind = embed_ind[:, :5]

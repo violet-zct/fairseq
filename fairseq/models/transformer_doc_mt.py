@@ -325,7 +325,6 @@ class TransformerEncoderWithContext(TransformerEncoder):
         # embed tokens and positions
         if seg_pos == 0 or self.code_embed_tokens is None:
             embed = self.embed_scale * self.embed_tokens(src_tokens)
-            x = embed + self.embed_positions(src_tokens[:])
         else:
             # context: B x T x |V|
             embed = (src_tokens.type_as(type_as_tensor) @ self.code_embed_tokens)
