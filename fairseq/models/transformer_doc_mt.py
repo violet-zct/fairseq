@@ -275,11 +275,20 @@ class TransformerEncoderWithContext(TransformerEncoder):
 
         if code_embed_tokens_init is not None:
             self.code_vocab_size, self.code_dim = code_embed_tokens_init.size(0), code_embed_tokens_init.size(1)
+            # if args.encode_code:
+            #     self.code_embed_tokens = nn.Parameter(code_embed_tokens_init, requires_grad=not args.fix_code_book)
+            #     self.code_embed_tokens = Embedding(self.code_vocab_size, self.code_dim , padding_idx=None, weight=code_embed_tokens_init)
+            # else:
+            #     self.code_embed_tokens = nn.Parameter(torch.normal(mean=0, std=self.code_dim ** -0.5,
+            #                                                        size=(self.code_vocab_size, self.code_dim)), requires_grad=True)
             if args.encode_code:
-                self.code_embed_tokens = nn.Parameter(code_embed_tokens_init, requires_grad=not args.fix_code_book)
+                self.code_embed_tokens = Embedding(self.code_vocab_size, self.code_dim, padding_idx=None, weight=code_embed_tokens_init)
             else:
-                self.code_embed_tokens = nn.Parameter(torch.normal(mean=0, std=self.code_dim ** -0.5,
-                                                                   size=(self.code_vocab_size, self.code_dim)), requires_grad=True)
+                self.code_embed_tokens = Embedding(args.codebook_size, args.encoder_embed_dim, None)
+            if args.fix_code_book:
+                self.code_embed_tokens.weight.requires_grad = False
+            else:
+                self.code_embed_tokens.weight.requires_grad = True
         else:
             self.code_embed_tokens = None
 
@@ -327,7 +336,7 @@ class TransformerEncoderWithContext(TransformerEncoder):
             embed = self.embed_scale * self.embed_tokens(src_tokens)
         else:
             # context: B x T x |V|
-            embed = (src_tokens.type_as(type_as_tensor) @ self.code_embed_tokens)
+            embed = (src_tokens.type_as(type_as_tensor) @ self.code_embed_tokens.weight)
             embed = embed * (~mask).type_as(embed).unsqueeze(-1)
             embed = self.embed_scale * embed
             src_tokens = torch.ones((src_tokens.size(0), src_tokens.size(1))).long().to(type_as_tensor.device) * 100
