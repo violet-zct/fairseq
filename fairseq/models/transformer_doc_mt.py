@@ -277,7 +277,6 @@ class TransformerEncoderWithContext(TransformerEncoder):
             self.code_vocab_size, self.code_dim = code_embed_tokens_init.size(0), code_embed_tokens_init.size(1)
             # if args.encode_code:
             #     self.code_embed_tokens = nn.Parameter(code_embed_tokens_init, requires_grad=not args.fix_code_book)
-            #     self.code_embed_tokens = Embedding(self.code_vocab_size, self.code_dim , padding_idx=None, weight=code_embed_tokens_init)
             # else:
             #     self.code_embed_tokens = nn.Parameter(torch.normal(mean=0, std=self.code_dim ** -0.5,
             #                                                        size=(self.code_vocab_size, self.code_dim)), requires_grad=True)
