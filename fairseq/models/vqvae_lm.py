@@ -121,7 +121,7 @@ class Quantize(nn.Module):
     def get_temperature(self, updates):
         if updates == -1:
             return self.min_temp
-        return self.min_temp if updates >= self.anneal_steps else ((updates * 1.0 / self.anneal_steps) * self.diff_temp + self.min_temp)
+        return self.min_temp if updates >= self.anneal_steps else (self.max_temp - (updates * 1.0 / self.anneal_steps) * self.diff_temp)
 
     def forward(self, input, input_mask, updates=-1, prefix="", extract_code_only=False, code_extract_strategy=None):
         '''
