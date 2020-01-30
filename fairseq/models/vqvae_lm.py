@@ -161,7 +161,8 @@ class Quantize(nn.Module):
             elif not self.training and code_extract_strategy == 'topk':
                 probs = F.softmax(-dist, -1)  # S x K
                 topk_probs, embed_ind = probs.topk(k=5, largest=True, dim=-1)  # S x K
-                probs = probs.scatter(1, embed_ind, 0.)
+                _mask = probs.scatter(1, embed_ind, -1.)
+                probs[_mask.ne(-1)] = 0
                 embed_onehot = probs / probs.sum(-1).unsqueeze(1)  # S x K
             elif not self.training and code_extract_strategy == 'full':
                 embed_ind = None
