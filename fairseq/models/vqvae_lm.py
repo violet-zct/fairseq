@@ -160,10 +160,11 @@ class Quantize(nn.Module):
                 embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten).mean(1)  # S x samples x K -> S x K
             elif not self.training and code_extract_strategy == 'topk':
                 probs = F.softmax(-dist, -1)  # S x K
-                topk_probs, topk_indices = probs.topk(k=5, largest=True, dim=-1)  # S x K
-                probs = probs.scatter(1, topk_indices, 0.)
+                topk_probs, embed_ind = probs.topk(k=5, largest=True, dim=-1)  # S x K
+                probs = probs.scatter(1, embed_ind, 0.)
                 embed_onehot = probs / probs.sum(-1).unsqueeze(1)  # S x K
             elif not self.training and code_extract_strategy == 'full':
+                embed_ind = None
                 embed_onehot = F.softmax(-dist, -1)
             elif not self.training and code_extract_strategy == 'topp':
                 probs = F.softmax(-dist / tau, -1)
@@ -188,6 +189,8 @@ class Quantize(nn.Module):
                 embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten)  # S x K
             if extract_code_only:
                 return embed_onehot
+            if embed_ind is None:
+                _, embed_ind = (-dist).topk(k=5, largest=True, dim=-1)  # S x K
             quantize = (embed_onehot @ embed.transpose(0, 1)).view(input.size(0), input.size(1), self.dim)
         else:
             _, embed_ind = (-dist).max(1)  # S
