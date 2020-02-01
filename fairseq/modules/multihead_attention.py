@@ -19,7 +19,7 @@ class MultiheadAttention(nn.Module):
 
     def __init__(self, embed_dim, num_heads, kdim=None, vdim=None, dropout=0., bias=True,
                  add_bias_kv=False, add_zero_attn=False, self_attention=False,
-                 encoder_decoder_attention=False, shared_k_proj_weight=None, qkv_same_dim=True):
+                 encoder_decoder_attention=False, shared_q_proj_weight=None, qkv_same_dim=True):
         super().__init__()
         '''
             gaussion_prior_var (float): variance of normal gaussian.
@@ -46,13 +46,13 @@ class MultiheadAttention(nn.Module):
             self.in_proj_weight = Parameter(torch.Tensor(3 * embed_dim, embed_dim))
         else:
             self.init_k_proj = False
-            if shared_k_proj_weight is None:
-                self.k_proj_weight = Parameter(torch.Tensor(embed_dim, self.kdim))
+            if shared_q_proj_weight is None:
+                self.q_proj_weight = Parameter(torch.Tensor(embed_dim, self.embed_dim))
             else:
-                self.k_proj_weight = shared_k_proj_weight
-                self.init_k_proj = True
+                self.q_proj_weight = shared_q_proj_weight
+                self.init_q_proj = True
             self.v_proj_weight = Parameter(torch.Tensor(embed_dim, self.vdim))
-            self.q_proj_weight = Parameter(torch.Tensor(embed_dim, embed_dim))
+            self.k_proj_weight = Parameter(torch.Tensor(embed_dim, self.kdim))
 
         if bias:
             self.in_proj_bias = Parameter(torch.Tensor(3 * embed_dim))
@@ -86,10 +86,10 @@ class MultiheadAttention(nn.Module):
         if self.qkv_same_dim:
             nn.init.xavier_uniform_(self.in_proj_weight)
         else:
-            if not self.init_k_proj:
-                nn.init.xavier_uniform_(self.k_proj_weight)
+            if not self.init_q_proj:
+                nn.init.xavier_uniform_(self.q_proj_weight)
             nn.init.xavier_uniform_(self.v_proj_weight)
-            nn.init.xavier_uniform_(self.q_proj_weight)
+            nn.init.xavier_uniform_(self.k_proj_weight)
 
         nn.init.xavier_uniform_(self.out_proj.weight)
         if self.in_proj_bias is not None:

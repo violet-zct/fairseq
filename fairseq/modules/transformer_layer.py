@@ -187,6 +187,7 @@ class TransformerDecoderLayer(nn.Module):
                     encoder_decoder_attention=True,
                     qkv_same_dim=not self.share_key_proj,
                 )
+                # share key proj is query actually
                 self.aug_encoder_attn = MultiheadAttention(
                     self.embed_dim,
                     args.decoder_attention_heads,
@@ -194,7 +195,7 @@ class TransformerDecoderLayer(nn.Module):
                     vdim=getattr(args, 'encoder_embed_dim', None),
                     dropout=args.attention_dropout,
                     encoder_decoder_attention=True,
-                    shared_k_proj_weight=self.encoder_attn.k_proj_weight if self.share_key_proj else None,
+                    shared_q_proj_weight=self.encoder_attn.q_proj_weight if self.share_key_proj else None,
                     qkv_same_dim=not self.share_key_proj,
                 )
                 self.context_value_weight = getattr(args, 'ctx_value_weight', 0.5)
