@@ -119,7 +119,7 @@ class Quantize(nn.Module):
         self.commit_weight = args.commitment_cost
 
     def get_temperature(self, updates):
-        if updates == -1:
+        if updates == -1 or self.anneal_steps <= 0:
             return self.min_temp
 
         if self.anneal_steps > 0:
