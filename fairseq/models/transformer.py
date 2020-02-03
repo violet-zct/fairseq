@@ -487,7 +487,11 @@ class TransformerDecoder(FairseqIncrementalDecoder):
                 tie_proj=args.tie_adaptive_proj,
             )
         elif not self.share_input_output_embed:
-            self.embed_out = nn.Parameter(torch.Tensor(len(dictionary), self.output_embed_dim))
+            if pad_idx is not None:
+                # use vqvae model' embedding as embed_tokens
+                self.embed_out = nn.Parameter(torch.Tensor(embed_tokens.size(0), self.output_embed_dim))
+            else:
+                self.embed_out = nn.Parameter(torch.Tensor(len(dictionary), self.output_embed_dim))
             nn.init.normal_(self.embed_out, mean=0, std=self.output_embed_dim ** -0.5)
 
         if args.decoder_normalize_before and not getattr(args, 'no_decoder_final_norm', False):

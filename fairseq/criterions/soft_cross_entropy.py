@@ -38,8 +38,8 @@ class SoftCrossEntropyCriterion(FairseqCriterion):
         logits, _ = model(src_tokens=codes[:, :-1], prev_output_masks=~mask[:, :-1])
         lprobs = utils.log_softmax(logits, dim=-1)
         target, target_mask = codes[:, 1:], mask[:, 1:]
-        loss = (target * logits).sum(-1) * (target_mask.type_as(lprobs))
-        loss = loss.sum()
+        loss = (target * lprobs).sum(-1) * (target_mask.type_as(lprobs))
+        loss = -loss.sum()
         sample_size = target_mask.sum().item()
         logging_output = {
             'loss': utils.item(loss.data) if reduce else loss.data,
