@@ -30,17 +30,17 @@ class SoftCrossEntropyCriterion(FairseqCriterion):
                                                      sample['net_input']['src_lengths'], sample['target']
         with torch.no_grad():
             # codes are weighted one_hot matrix: B x T x |V|
-            # mask: B x T, set pad to be True
+            # mask: B x T, set pad to be False
             codes, mask = self.task.vqvae_model.forward_encoder(target_tokens, lengths, extract_code_only=True,
                                                               code_extract_strategy=getattr(self.args,
                                                                                             'code_extract_strategy',
                                                                                             None))
-        logits, _ = model(src_tokens=codes[:, :-1], prev_output_masks=mask[:, :-1])
+        logits, _ = model(src_tokens=codes[:, :-1], prev_output_masks=~mask[:, :-1])
         lprobs = utils.log_softmax(logits, dim=-1)
         target, target_mask = codes[:, 1:], mask[:, 1:]
-        loss = (target * logits).sum(-1) * (~target_mask).type_as(lprobs)
+        loss = (target * logits).sum(-1) * (target_mask.type_as(lprobs))
         loss = loss.sum()
-        sample_size = (~target_mask).sum().item()
+        sample_size = target_mask.sum().item()
         logging_output = {
             'loss': utils.item(loss.data) if reduce else loss.data,
             'nll_loss': utils.item(loss.data) if reduce else loss.data,
