@@ -80,6 +80,8 @@ class SoftLanguageModelingTask(LanguageModelingTask):
         self.padding_idx = vqvae_task.dictionary.pad_index
 
     def add_args(parser):
+        parser.add_argument('data', help='colon separated path to data directories list, \
+                            will be iterated upon during epochs in round-robin manner')
         parser.add_argument('--context-model-path', type=str, default=None,
                             help='if not None, use external vqvae to compress the document or apply quantization on codes')
         parser.add_argument('--code-extract-strategy', type=str, default=None,
@@ -89,6 +91,7 @@ class SoftLanguageModelingTask(LanguageModelingTask):
     def setup_task(cls, args, **kwargs):
         context_model, context_task, model_args = load_model(args, args.context_model_path)
         # context_dict = context_task.dictionary
+        model_args.data = args.data
         args.codebook_size = model_args.bottom_latent_k
         return cls(args, context_model, context_task, model_args)
 

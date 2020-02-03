@@ -50,18 +50,6 @@ class SoftCrossEntropyCriterion(FairseqCriterion):
         }
         return loss, sample_size, logging_output
 
-    def compute_loss(self, model, net_output, sample, reduce=True):
-        lprobs = model.get_normalized_probs(net_output, log_probs=True)
-        lprobs = lprobs.view(-1, lprobs.size(-1))
-        target = model.get_targets(sample, net_output).view(-1)
-        loss = F.nll_loss(
-            lprobs,
-            target,
-            ignore_index=self.padding_idx,
-            reduction='sum' if reduce else 'none',
-        )
-        return loss, loss
-
     @staticmethod
     def aggregate_logging_outputs(logging_outputs):
         """Aggregate logging outputs from data parallel training."""
