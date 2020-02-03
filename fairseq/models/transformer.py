@@ -543,10 +543,10 @@ class TransformerDecoder(FairseqIncrementalDecoder):
                     positions = positions[:, -1:]
 
             # embed tokens and positions
-            x = self.embed_scale * self.embed_tokens(prev_output_tokens)
+            x = self.embed_scale * self.embed_tokens(tokens)
 
         else:
-            embed = (tokens @ self.code_embed_tokens.weight)
+            embed = (tokens @ self.embed_tokens.weight)
             embed = embed * (~mask).type_as(embed).unsqueeze(-1)
             x = self.embed_scale * embed
             tokens = torch.ones((tokens.size(0), tokens.size(1))).long().to(embed.device) * 100
@@ -642,8 +642,9 @@ class TransformerDecoder(FairseqIncrementalDecoder):
                 self_attn_padding_mask=self_attn_padding_mask,
                 need_attn=(idx == alignment_layer),
                 need_head_weights=(idx == alignment_layer),
-                bi_context=encoder_out['bi_context'] if 'bi_context' in encoder_out else None,
-                bi_context_padding_mask=encoder_out['bi_context_padding_mask'] if 'bi_context_padding_mask' in encoder_out else None,
+                bi_context=encoder_out['bi_context'] if encoder_out is not None and 'bi_context' in encoder_out else None,
+                bi_context_padding_mask=encoder_out['bi_context_padding_mask'] if encoder_out is not None and
+                                                                                  'bi_context_padding_mask' in encoder_out else None,
             )
 
             inner_states.append(x)
