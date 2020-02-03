@@ -10,14 +10,13 @@ from fairseq.models import (
     register_model_architecture,
 )
 from fairseq.models.transformer import (
-    Embedding,
     TransformerDecoder,
 )
 from fairseq.modules import (
     AdaptiveInput,
     CharacterTokenEmbedder,
 )
-
+import torch.nn as nn
 DEFAULT_MAX_TARGET_POSITIONS = 1024
 
 
@@ -123,19 +122,37 @@ class TransformerLanguageModel(FairseqLanguageModel):
                 options.eval_str_list(args.adaptive_input_cutoff, type=int),
             )
         else:
-            embed_tokens = Embedding(len(task.source_dictionary), args.decoder_input_dim, task.source_dictionary.pad())
+            if hasattr(task, 'vqvae_model'):
+                vocab_size = args.codebook_size
+                assert args.decoder_input_dim == task.vqvae_model.bottom_quantizer.dim
+                code_embed_init = task.vqvae_model.bottom_quantizer.embed.transpose(0, 1)
+                embed_tokens = Embedding(vocab_size, args.decoder_input_dim, padding_idx=None, weight=code_embed_init)
+            else:
+                embed_tokens = Embedding(len(task.source_dictionary), args.decoder_input_dim, task.source_dictionary.pad())
 
-        if args.tie_adaptive_weights:
-            assert args.adaptive_input
-            assert args.adaptive_input_factor == args.adaptive_softmax_factor
-            assert args.adaptive_softmax_cutoff == args.adaptive_input_cutoff, '{} != {}'.format(
-                args.adaptive_softmax_cutoff, args.adaptive_input_cutoff)
-            assert args.decoder_input_dim == args.decoder_output_dim
+        if hasattr(task, 'vqvae_model'):
+            decoder = TransformerDecoder(
+                args, task.target_dictionary, embed_tokens, no_encoder_attn=True, pad_idx=task.padding_idx
+            )
+        else:
+            if args.tie_adaptive_weights:
+                assert args.adaptive_input
+                assert args.adaptive_input_factor == args.adaptive_softmax_factor
+                assert args.adaptive_softmax_cutoff == args.adaptive_input_cutoff, '{} != {}'.format(
+                    args.adaptive_softmax_cutoff, args.adaptive_input_cutoff)
+                assert args.decoder_input_dim == args.decoder_output_dim
 
-        decoder = TransformerDecoder(
-            args, task.target_dictionary, embed_tokens, no_encoder_attn=True,
-        )
+            decoder = TransformerDecoder(
+                args, task.target_dictionary, embed_tokens, no_encoder_attn=True,
+            )
         return TransformerLanguageModel(decoder)
+
+
+def Embedding(num_embeddings, embedding_dim, padding_idx, weight=None):
+    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx, _weight=weight)
+    nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
+    nn.init.constant_(m.weight[padding_idx], 0)
+    return m
 
 
 @register_model_architecture('transformer_lm', 'transformer_lm')

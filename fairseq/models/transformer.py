@@ -438,7 +438,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
             (default: False).
     """
 
-    def __init__(self, args, dictionary, embed_tokens, no_encoder_attn=False,):
+    def __init__(self, args, dictionary, embed_tokens, no_encoder_attn=False, pad_idx=None):
         super().__init__(dictionary)
         self.register_buffer('version', torch.Tensor([3]))
 
@@ -449,7 +449,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         embed_dim = args.decoder_embed_dim
         self.output_embed_dim = args.decoder_output_dim
 
-        self.padding_idx = embed_tokens.padding_idx
+        self.padding_idx = embed_tokens.padding_idx if pad_idx is None else pad_idx
         self.max_target_positions = args.max_target_positions
 
         self.embed_tokens = embed_tokens
@@ -502,6 +502,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         incremental_state=None,
         features_only=False,
         aug_input='none',
+        prev_output_masks=None,
         **extra_args,
     ):
         """
@@ -522,10 +523,51 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         """
         x, extra = self.extract_features(
             prev_output_tokens, encoder_out, incremental_state, **extra_args, aug_input=aug_input,
+            prev_output_mask=prev_output_masks
         )
         if not features_only:
             x = self.output_layer(x)
         return x, extra
+
+    def forward_embedding(self, tokens, mask, incremental_state):
+        if mask is None:
+            # embed positions
+            positions = self.embed_positions(
+                tokens,
+                incremental_state=incremental_state,
+            ) if self.embed_positions is not None else None
+
+            if incremental_state is not None:
+                prev_output_tokens = tokens[:, -1:]
+                if positions is not None:
+                    positions = positions[:, -1:]
+
+            # embed tokens and positions
+            x = self.embed_scale * self.embed_tokens(prev_output_tokens)
+
+        else:
+            embed = (tokens @ self.code_embed_tokens.weight)
+            embed = embed * (~mask).type_as(embed).unsqueeze(-1)
+            x = self.embed_scale * embed
+            tokens = torch.ones((tokens.size(0), tokens.size(1))).long().to(embed.device) * 100
+            tokens = tokens.masked_fill(mask, self.padding_idx)
+            positions = self.embed_positions(tokens)
+
+            if incremental_state is not None:
+                x = x[: -1:]
+                if positions is not None:
+                    positions = positions[:, -1:]
+
+        self_attn_padding_mask = tokens.eq(self.padding_idx)
+        if not self_attn_padding_mask.any() and not self.cross_self_attention and incremental_state is None:
+            self_attn_padding_mask = None
+
+        if self.project_in_dim is not None:
+            x = self.project_in_dim(x)
+
+        if positions is not None:
+            x += positions
+        return x, self_attn_padding_mask
 
     def extract_features(
         self,
@@ -536,6 +578,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         alignment_layer=None,
         alignment_heads=None,
         aug_input='none',
+        prev_output_mask=None,
         **unused,
     ):
         """
@@ -560,27 +603,9 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         if alignment_layer is None:
             alignment_layer = len(self.layers) - 1
 
-        # embed positions
-        positions = self.embed_positions(
-            prev_output_tokens,
-            incremental_state=incremental_state,
-        ) if self.embed_positions is not None else None
-
         cur_tgt_pos = None if incremental_state is None or encoder_out is None else min(prev_output_tokens.size(1),
                                                                  encoder_out['encoder_out'].size(1))
-        if incremental_state is not None:
-            prev_output_tokens = prev_output_tokens[:, -1:]
-            if positions is not None:
-                positions = positions[:, -1:]
-
-        # embed tokens and positions
-        x = self.embed_scale * self.embed_tokens(prev_output_tokens)
-
-        if self.project_in_dim is not None:
-            x = self.project_in_dim(x)
-
-        if positions is not None:
-            x += positions
+        x, self_attn_padding_mask = self.forward_embedding(prev_output_tokens, prev_output_mask, incremental_state)
 
         if aug_input == 'add':
             if incremental_state is not None:
@@ -589,13 +614,8 @@ class TransformerDecoder(FairseqIncrementalDecoder):
                 x += encoder_out['encoder_out']
 
         x = F.dropout(x, p=self.dropout, training=self.training)
-
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
-
-        self_attn_padding_mask = prev_output_tokens.eq(self.padding_idx)
-        if not self_attn_padding_mask.any() and not self.cross_self_attention and incremental_state is None:
-            self_attn_padding_mask = None
 
         # decoder layers
         attn = None

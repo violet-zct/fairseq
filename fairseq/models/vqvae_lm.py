@@ -182,16 +182,6 @@ class Quantize(nn.Module):
                 trimed_probs = trimed_probs / trimed_probs.sum(-1).unsqueeze(-1)
                 embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(input) * (trimed_probs.unsqueeze(-1))  # S x ? x K
                 embed_onehot = embed_onehot.sum(1)  # S x K
-                #stats['avg_topp'] = topp_mask.sum() * 1.0 / flatten.size(0)
-                #stats['max_topp'] = topp_mask.sum(1).max()
-                #stats['min_topp'] = topp_mask.sum(1).min()
-                #print(trimmed_probs.size())
-                #print(trimmed_probs)
-                #stats['avg_topp_p'] = trimmed_probs.sum() * 1.0 / flatten.size(0)
-                #stats['max_topp_p'] = trimmed_probs[:, 0].max()
-                #stats['min_topp_p'] = trimmed_probs[topp_mask].min()
-                #print(stats)
-                #input()
             elif not self.training and code_extract_strategy == 'argmax':
                 _, embed_ind = (-dist).max(1)  # S
                 embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten)  # S x K

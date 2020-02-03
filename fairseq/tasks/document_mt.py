@@ -204,7 +204,7 @@ class DocumentTranslationTask(FairseqTask):
         parser.add_argument('--fix-code-book', type=int, default=0)
         parser.add_argument('--window-size', type=int, default=3)
         parser.add_argument('--code-extract-strategy', type=str, default=None,
-                            help=['soft', 'argmax', 'topp'])
+                            help=['soft', 'argmax', 'topp', 'topk', 'full'])
         # fmt: on
 
     def __init__(self, args, src_dict, tgt_dict, ctx_dict, ctx_model):
