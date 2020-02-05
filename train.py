@@ -398,12 +398,13 @@ def multi_gpu_bleu(args, trainer, task, generator, model, epoch_itr, subsets, pp
         ftran_filename = os.path.join(args.eval_dir, '{}_{}_{}_{}.translation'.format(pprefix, epoch, updates, args.distributed_rank))
         fgold_filename = os.path.join(args.eval_dir, '{}_{}_{}_{}.gold'.format(pprefix, epoch, updates, args.distributed_rank))
 
+    torch.cuda.empty_cache()
     for subset in subsets:
         ftran = io.open(ftran_filename, "w", encoding="utf-8")
         fgold = io.open(fgold_filename, "w", encoding="utf-8")
         itr = task.get_batch_iterator(
             dataset=task.dataset(subset),
-            max_tokens=args.max_tokens,
+            max_tokens=args.max_tokens // 3,
             max_sentences=args.max_sentences,
             max_positions=utils.resolve_max_positions(
                 task.max_positions(),
