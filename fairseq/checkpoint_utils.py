@@ -139,8 +139,8 @@ def load_checkpoint_to_cpu(path, arg_overrides=None):
     if arg_overrides is not None:
         for arg_name, arg_val in arg_overrides.items():
             # when doing evaluation, do not override the original data path
-            if 'eval_task' in args and arg_name == 'data':
-                continue
+            #if 'eval_task' in args and arg_name == 'data':
+            #    continue
             setattr(args, arg_name, arg_val)
     state = _upgrade_state_dict(state)
     return state

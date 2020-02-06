@@ -167,9 +167,10 @@ class Quantize(nn.Module):
                 embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten).mean(1)  # S x samples x K -> S x K
             elif not self.training and code_extract_strategy == 'topk':
                 probs = F.softmax(-dist / tau, -1)  # S x K
-                topk_probs, embed_ind = probs.topk(k=5, largest=True, dim=-1)  # S x K
+                topk_probs, embed_ind = probs.topk(k=10, largest=True, dim=-1)  # S x K
                 _mask = probs.scatter(1, embed_ind, -1.)
                 probs[_mask.ne(-1)] = 0
+                embed_ind = [topk_probs, embed_ind]
                 embed_onehot = probs / probs.sum(-1).unsqueeze(1)  # S x K
             elif not self.training and code_extract_strategy == 'full':
                 embed_ind = None
@@ -803,12 +804,19 @@ class VQVAE(FairseqLanguageModel):
             quantize_out['global_quantize'] = torch.cat(gquants, dim=-1)
 
         if not self.training:
-            embed_ind = embed_ind.view(text_conv_out.size(0), text_conv_out.size(1), -1).transpose(0, 1)  # B x T x ? (?=1/K/topp)
-            embed_ind = embed_ind.masked_fill(~mask.unsqueeze(-1), -1)
-            # codes: batch x T x k -> k = #samples / 1(argmax)
-            codes = {'bottom_codes': embed_ind}
-            if self.global_quantizer is not None:
-                codes['global_codes'] = gids
+            if isinstance(embed_ind, list):
+                topk, embind = embed_ind
+                embed_ind = embind.view(text_conv_out.size(0), text_conv_out.size(1), -1).transpose(0, 1)
+                topk = topk.view(text_conv_out.size(0), text_conv_out.size(1), -1).transpose(0, 1)
+                embed_ind = embed_ind.masked_fill(~mask.unsqueeze(-1), -1)
+                codes = {'bottom_codes': [embed_ind, topk]}
+            else:
+                embed_ind = embed_ind.view(text_conv_out.size(0), text_conv_out.size(1), -1).transpose(0, 1)  # B x T x ? (?=1/K/topp)
+                embed_ind = embed_ind.masked_fill(~mask.unsqueeze(-1), -1)
+                # codes: batch x T x k -> k = #samples / 1(argmax)
+                codes = {'bottom_codes': embed_ind}
+                if self.global_quantizer is not None:
+                    codes['global_codes'] = gids
         else:
             codes = None
         return mask, diff, quantize_out, quantize_stats, codes

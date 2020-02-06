@@ -81,7 +81,7 @@ def main(args, override_args=None):
         else:
             prefix = ".bs"
         if args.code_extract_strategy is not None:
-            prefix = prefix + '.' + args.code_extract_strategy
+            prefix = prefix + '.' + args.code_extract_strategy + '.news'
         else:
             prefix += '.orig.sampling'
         if args.prefix_num > 0:
@@ -149,6 +149,10 @@ def main(args, override_args=None):
                     prefix_tokens = None if args.prefix_num == 0 else sample['target'][:, :args.prefix_num]
                     gen_timer.start()
                     hypos, codes, stats = task.reconstruct(sample, model, generator, prefix_tokens, extract_mode=args.code_extract_strategy)
+                    if isinstance(codes, list):
+                        codes, topk = codes
+                    else:
+                        topk = None
                     if 'avg_topp' in stats:
                         all_stats.append(stats)
                     all_codes.update(torch.unique(codes).tolist())
@@ -187,9 +191,16 @@ def main(args, override_args=None):
                             )
                             fopt.write('H-{}\t{}\t{}\n'.format(sample_id, hypo['score'], hypo_str))
                             code_str = ""
+                            if topk is not None:
+                                prob_str = ""
+                                sent_topk = topk[i] / topk[i].sum(1).unsqueeze(1)
                             for ii, token_code in enumerate(code):
                                 code_str += " ".join(["c{}-{}".format(ii, kk) for kk in token_code if kk != -1]) + ' '
+                                if topk is not None:
+                                    prob_str += " ".join(["p{}-{:.2f}".format(ii, kk.item()) for kk, mm in zip(sent_topk[ii], token_code) if mm  != -1]) + ' '
                             fopt.write('C-{}\n'.format(code_str))
+                            if topk is not None:
+                                fopt.write('K-{}\n'.format(prob_str))
                             if hypo['attention'] is not None:
                                 hypo_attn = hypo['attention'].cpu().numpy()  # src_len x tgt_len
                                 entropy, max_idx = compute_attn(hypo_attn)
