@@ -1,2 +1,6 @@
 reconstruction full BLEU 78.3
 reconstruction top10 BLEU 66.73
+reconstruction argmax BLEU 10.57
+
+MT vqvae-pretrained BLEU 34.27
+MT sentence-level baseline BLEU 33.95
