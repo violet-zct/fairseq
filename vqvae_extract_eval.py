@@ -81,7 +81,7 @@ def main(args, override_args=None):
         else:
             prefix = ".bs"
         if args.code_extract_strategy is not None:
-            prefix = prefix + '.' + args.code_extract_strategy + '.news'
+            prefix = prefix + '.' + args.code_extract_strategy
         else:
             prefix += '.orig.sampling'
         if args.prefix_num > 0:
@@ -182,7 +182,7 @@ def main(args, override_args=None):
                         for j, hypo in enumerate(hypos[i][:args.nbest]):
                             code = codes[i]
                             hypo_tokens, hypo_str, alignment = utils.post_process_prediction(
-                                hypo_tokens=hypo['tokens'].int().cpu(),
+                                    hypo_tokens=hypo['tokens'].int().cpu()[:len(tokens)-1],
                                 src_str="",
                                 alignment=hypo['alignment'],
                                 align_dict=None,
