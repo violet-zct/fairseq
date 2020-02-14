@@ -197,7 +197,7 @@ def main(args, override_args=None):
                             for ii, token_code in enumerate(code):
                                 code_str += " ".join(["c{}-{}".format(ii, kk) for kk in token_code if kk != -1]) + ' '
                                 if topk is not None:
-                                    prob_str += " ".join(["p{}-{:.2f}".format(ii, kk.item()) for kk, mm in zip(sent_topk[ii], token_code) if mm  != -1]) + ' '
+                                    prob_str += " ".join(["p{}-{:.2f}".format(ii, kk.item()) for kk, mm in zip(sent_topk[ii], token_code) if mm != -1]) + ' '
                             fopt.write('C-{}\n'.format(code_str))
                             if topk is not None:
                                 fopt.write('K-{}\n'.format(prob_str))

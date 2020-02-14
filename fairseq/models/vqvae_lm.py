@@ -13,6 +13,8 @@ from fairseq.models.conv_encoder import (
     FullConvEncoder,
     SingleKernelFullConvEncoder,
     SingleKernelFullDeConvEncoder,
+    SingleKernelFullConvNoOverlapEncoder,
+    SingleKernelFullDeConvNoOverlapEncoder,
 )
 from fairseq.modules import PositionalEmbedding
 
@@ -418,7 +420,7 @@ class VQVAE(FairseqLanguageModel):
         parser.add_argument('--add-latent-positions', type=int)
         parser.add_argument('--context-window', type=int, default=0)
         parser.add_argument('--encoder-opt-dropout', type=float, default=0.)
-        parser.add_argument('--encoder-form', type=str, default='mix', choices=['mix', 'conv', 'append'],
+        parser.add_argument('--encoder-form', type=str, default='mix', choices=['mix', 'conv', 'append', 'no_overlap_conv'],
                             help='mix=transformer+cnn, conv=fully cnn, append=transformer+pending positional embedding')
         parser.add_argument('--shrink-ratio', type=int, default=8,
                             help='used for append')
@@ -459,6 +461,9 @@ class VQVAE(FairseqLanguageModel):
         parser.add_argument('--disable-mea', type=int, default=0)
         parser.add_argument('--code-extract-strategy', type=str, default=None,
                             help=['soft', 'argmax', 'topp'])
+
+        parser.add_argument('--use-semantic-encoder', type=int, default=0,
+                            help='if true, use transformer encoder on noised input')
 
     @classmethod
     def build_model(cls, args, task):
@@ -562,6 +567,15 @@ class VQVAE(FairseqLanguageModel):
             if args.use_deconv:
                 # let's misuse the conv_encoder for deconvolutional encodder
                 text_conv_encoder = SingleKernelFullDeConvEncoder(args.encoder_embed_dim, kernels[::-1], strides[::-1], src_dict)
+            else:
+                text_conv_encoder = None
+        elif args.encoder_form == 'no_overlap_conv':
+            text_encoder = SingleKernelFullConvNoOverlapEncoder(args, args.encoder_embed_dim, kernels, strides,
+                                                       args.bottom_latent_dim,
+                                                       embed_tokens, src_dict)
+            if args.use_deconv:
+                # let's misuse the conv_encoder for deconvolutional encodder
+                text_conv_encoder = SingleKernelFullDeConvNoOverlapEncoder(args.encoder_embed_dim, kernels[::-1], strides[::-1], src_dict)
             else:
                 text_conv_encoder = None
         elif args.encoder_form == 'append':
