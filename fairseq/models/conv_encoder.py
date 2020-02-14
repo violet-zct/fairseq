@@ -398,7 +398,7 @@ class DeConvBlockEven(nn.Module):
         self.bn1 = nn.BatchNorm1d(input_channel)
         self.deconv2 = nn.ConvTranspose1d(input_channel, input_channel, kernel_size=1, padding=0)
         self.bn2 = nn.BatchNorm1d(input_channel)
-        self.upsample = nn.Sequential(nn.ConvTranspose1d(input_channel, input_channel, 1, stride=stride),
+        self.upsample = nn.Sequential(nn.ConvTranspose1d(input_channel, input_channel, stride, stride=stride),
                                       nn.BatchNorm1d(input_channel))
 
     def forward(self, x, mask):
