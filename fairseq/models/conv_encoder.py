@@ -392,9 +392,9 @@ class DeConvBlockEven(nn.Module):
     def __init__(self, input_channel, stride):
         super().__init__()
         self.stride = stride
-        self.deconv1 = nn.ConvTranspose1d(input_channel, input_channel, stride=stride)
+        self.deconv1 = nn.ConvTranspose1d(input_channel, input_channel, kernel_size=stride, stride=stride)
         self.bn1 = nn.BatchNorm1d(input_channel)
-        self.deconv2 = nn.ConvTranspose1d(input_channel, input_channel,)
+        self.deconv2 = nn.ConvTranspose1d(input_channel, input_channel, kernel_size=stride)
         self.bn2 = nn.BatchNorm1d(input_channel)
         self.upsample = nn.Sequential(nn.ConvTranspose1d(input_channel, input_channel, 1, stride=stride),
                                       nn.BatchNorm1d(input_channel))
