@@ -725,11 +725,10 @@ class VQVAE(FairseqLanguageModel):
                     full_tokens = torch.cat([full_tokens, full_tokens.new_full((full_tokens.size(0), pad_num), self.pad_index)], dim=1)
             text_conv_out, mask = self.text_encoder(full_tokens, lengths, pad_num)
         elif self.encoder_form == 'no_overlap_conv':
-            if self.args.use_deconv:
-                if max_len % self.shrink_ratio != 0:
-                    pad_num = self.shrink_ratio - max_len % self.shrink_ratio
-                    full_tokens = torch.cat(
-                        [full_tokens, full_tokens.new_full((full_tokens.size(0), pad_num), self.pad_index)], dim=1)
+            if max_len % self.shrink_ratio != 0:
+                pad_num = self.shrink_ratio - max_len % self.shrink_ratio
+                full_tokens = torch.cat(
+                    [full_tokens, full_tokens.new_full((full_tokens.size(0), pad_num), self.pad_index)], dim=1)
             text_conv_out, mask = self.text_encoder(full_tokens, lengths, pad_num)
         elif self.encoder_form == 'append':
             aug_tokens, mask = self.create_aug_input(full_tokens, lengths)
