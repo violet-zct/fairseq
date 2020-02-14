@@ -306,14 +306,15 @@ class ConvBlockEven(nn.Module):
         if output_channel is None:
             output_channel = input_channel
 
-        self.conv0 = nn.Conv1d(input_channel, output_channel, kernel_size=stride)
+        self.conv0 = nn.Conv1d(input_channel, output_channel, kernel_size=1, padding=0)
         self.bn0 = nn.BatchNorm1d(output_channel)
         self.conv1 = nn.Conv1d(input_channel, output_channel, kernel_size=stride, stride=stride)
         self.bn1 = nn.BatchNorm1d(output_channel)
-        self.conv2 = nn.Conv1d(input_channel, output_channel, kernel_size=stride)
+        self.conv2 = nn.Conv1d(input_channel, output_channel, kernel_size=1)
         self.bn2 = nn.BatchNorm1d(output_channel)
         self.downsample = nn.Sequential(nn.Conv1d(input_channel, output_channel, 1, stride=stride),
                                         nn.BatchNorm1d(output_channel))
+        self.pad = nn.ConstantPad1d((0, 1), 0.)
 
     def forward(self, x, mask):
         # input: batch x C x T
@@ -323,6 +324,7 @@ class ConvBlockEven(nn.Module):
         out = self.conv0(x)
         out = self.bn0(out)
         out = F.relu(out)
+        out = self.pad(out)
 
         out = self.conv1(out)
         out = self.bn1(out)
@@ -394,7 +396,7 @@ class DeConvBlockEven(nn.Module):
         self.stride = stride
         self.deconv1 = nn.ConvTranspose1d(input_channel, input_channel, kernel_size=stride, stride=stride)
         self.bn1 = nn.BatchNorm1d(input_channel)
-        self.deconv2 = nn.ConvTranspose1d(input_channel, input_channel, kernel_size=stride)
+        self.deconv2 = nn.ConvTranspose1d(input_channel, input_channel, kernel_size=1, padding=0)
         self.bn2 = nn.BatchNorm1d(input_channel)
         self.upsample = nn.Sequential(nn.ConvTranspose1d(input_channel, input_channel, 1, stride=stride),
                                       nn.BatchNorm1d(input_channel))
