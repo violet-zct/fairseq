@@ -36,10 +36,10 @@ class SoftCrossEntropyCriterion(FairseqCriterion):
                                                                                             'code_extract_strategy',
                                                                                             None))
         if codes.size(1) <= 1:
-            loss = 0
+            loss = torch.tensor(0.).to(codes.device)
             sample_size = 0
             logging_output = {
-                'loss': torch.tensor(0.).to(codes.device),
+                'loss': 0,
                 'nll_loss': 0,
                 'ntokens': 0,
                 'nsentences': 0,
