@@ -39,7 +39,7 @@ class SoftCrossEntropyCriterion(FairseqCriterion):
             loss = 0
             sample_size = 0
             logging_output = {
-                'loss': 0,
+                'loss': torch.tensor(0.).to(codes.device),
                 'nll_loss': 0,
                 'ntokens': 0,
                 'nsentences': 0,
