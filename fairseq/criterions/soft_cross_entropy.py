@@ -35,20 +35,19 @@ class SoftCrossEntropyCriterion(FairseqCriterion):
                                                               code_extract_strategy=getattr(self.args,
                                                                                             'code_extract_strategy',
                                                                                             None))
-        if codes.size(1) <= 1:
-            loss = torch.tensor(0.).to(codes.device)
-            sample_size = 0
-            logging_output = {
-                'loss': 0,
-                'nll_loss': 0,
-                'ntokens': 0,
-                'nsentences': 0,
-                'sample_size': sample_size,
-            }
+        if codes.size(1) == 0:
+            raise ValueError
         else:
-            logits, _ = model(src_tokens=codes[:, :-1], prev_output_masks=~mask[:, :-1])
+            if codes.size(1) == 1:
+                src_tokens = codes
+                prev_output_masks = ~mask
+                target, target_mask = codes, mask
+            else:
+                src_tokens = codes[:, :-1]
+                prev_output_masks = ~mask[:, :-1]
+                target, target_mask = codes[:, 1:], mask[:, 1:]
+            logits, _ = model(src_tokens=src_tokens, prev_output_masks=prev_output_masks)
             lprobs = utils.log_softmax(logits, dim=-1)
-            target, target_mask = codes[:, 1:], mask[:, 1:]
             loss = (target * lprobs).sum(-1) * (target_mask.type_as(lprobs))
             loss = -loss.sum()
             sample_size = target_mask.sum().item()
