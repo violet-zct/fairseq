@@ -172,7 +172,8 @@ def main(args, override_args=None):
                         continue
                     bpe_string = dictionary.string(tokens, bpe_symbol=None, escape_unk=True)
                     fopt.write('T-ori-{}\t{}\n'.format(sample_id, origin_string))
-
+                    fopt.write('T-bpe-{}\t{}\n'.format(sample_id, bpe_string))
+                    
                     if eval_task == 'code_extract':
                         code = codes[i]
                         fopt.write('T-bpe-{}\t{}\n'.format(sample_id, bpe_string))

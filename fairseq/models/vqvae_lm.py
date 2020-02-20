@@ -175,7 +175,7 @@ class Quantize(nn.Module):
             elif not self.training and code_extract_strategy == 'full':
                 embed_ind = None
                 embed_onehot = F.softmax(-dist / tau, -1)
-                probs, embed_ind = (-dist).topk(k=5, largest=True, dim=-1)  # S x K
+                probs, embed_ind = embed_onehot.topk(k=5, largest=True, dim=-1)  # S x K
                 embed_ind = [probs, embed_ind]
             elif not self.training and code_extract_strategy == 'topp':
                 probs = F.softmax(-dist / tau, -1)
@@ -185,6 +185,12 @@ class Quantize(nn.Module):
                 trimed_probs = trimed_probs / trimed_probs.sum(-1).unsqueeze(-1)
                 embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(input) * (trimed_probs.unsqueeze(-1))  # S x ? x K
                 embed_onehot = embed_onehot.sum(1)  # S x K
+            elif not self.training and code_extract_strategy == 'hard_topk':
+                probs = F.softmax(-dist / tau, -1)  # S x K
+                topk_probs, embed_ind = probs.topk(k=5, largest=True, dim=-1)  # S x K
+                rand_index = torch.randint(0, embed_ind.size(1), (embed_ind.size(0), )).to(embed_ind.device)
+                embed_ind = torch.gather(embed_ind, 1, rand_index.unsqueeze(1))
+                embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten)
             elif not self.training and code_extract_strategy == 'argmax':
                 _, embed_ind = (-dist).max(1)  # S
                 embed_onehot = F.one_hot(embed_ind, self.n_embed).type_as(flatten)  # S x K
