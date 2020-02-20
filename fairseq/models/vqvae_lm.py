@@ -13,6 +13,8 @@ from fairseq.models.conv_encoder import (
     FullConvEncoder,
     SingleKernelFullConvEncoder,
     SingleKernelFullDeConvEncoder,
+    SingleKernelFullConvNoOverlapEncoder,
+    SingleKernelFullDeConvNoOverlapEncoder,
 )
 from fairseq.modules import PositionalEmbedding
 
@@ -424,7 +426,7 @@ class VQVAE(FairseqLanguageModel):
         parser.add_argument('--add-latent-positions', type=int)
         parser.add_argument('--context-window', type=int, default=0)
         parser.add_argument('--encoder-opt-dropout', type=float, default=0.)
-        parser.add_argument('--encoder-form', type=str, default='mix', choices=['mix', 'conv', 'append'],
+        parser.add_argument('--encoder-form', type=str, default='mix', choices=['mix', 'conv', 'append', 'no_overlap_conv'],
                             help='mix=transformer+cnn, conv=fully cnn, append=transformer+pending positional embedding')
         parser.add_argument('--shrink-ratio', type=int, default=8,
                             help='used for append')
@@ -465,6 +467,9 @@ class VQVAE(FairseqLanguageModel):
         parser.add_argument('--disable-mea', type=int, default=0)
         parser.add_argument('--code-extract-strategy', type=str, default=None,
                             help=['soft', 'argmax', 'topp'])
+
+        parser.add_argument('--use-semantic-encoder', type=int, default=0,
+                            help='if true, use transformer encoder on noised input')
 
     @classmethod
     def build_model(cls, args, task):
@@ -568,6 +573,15 @@ class VQVAE(FairseqLanguageModel):
             if args.use_deconv:
                 # let's misuse the conv_encoder for deconvolutional encodder
                 text_conv_encoder = SingleKernelFullDeConvEncoder(args.encoder_embed_dim, kernels[::-1], strides[::-1], src_dict)
+            else:
+                text_conv_encoder = None
+        elif args.encoder_form == 'no_overlap_conv':
+            text_encoder = SingleKernelFullConvNoOverlapEncoder(args, args.encoder_embed_dim, kernels, strides,
+                                                       args.bottom_latent_dim,
+                                                       embed_tokens, src_dict)
+            if args.use_deconv:
+                # let's misuse the conv_encoder for deconvolutional encodder
+                text_conv_encoder = SingleKernelFullDeConvNoOverlapEncoder(args.encoder_embed_dim, kernels[::-1], strides[::-1], src_dict)
             else:
                 text_conv_encoder = None
         elif args.encoder_form == 'append':
@@ -715,6 +729,13 @@ class VQVAE(FairseqLanguageModel):
                 if (max_len - 1) % self.shrink_ratio != 0:
                     pad_num = math.ceil((max_len - 1) / self.shrink_ratio) * self.shrink_ratio + 1 - max_len
                     full_tokens = torch.cat([full_tokens, full_tokens.new_full((full_tokens.size(0), pad_num), self.pad_index)], dim=1)
+            text_conv_out, mask = self.text_encoder(full_tokens, lengths, pad_num)
+        elif self.encoder_form == 'no_overlap_conv':
+            if self.args.use_deconv:
+                if max_len % self.shrink_ratio != 0:
+                    pad_num = self.shrink_ratio - max_len % self.shrink_ratio
+                    full_tokens = torch.cat(
+                        [full_tokens, full_tokens.new_full((full_tokens.size(0), pad_num), self.pad_index)], dim=1)
             text_conv_out, mask = self.text_encoder(full_tokens, lengths, pad_num)
         elif self.encoder_form == 'append':
             aug_tokens, mask = self.create_aug_input(full_tokens, lengths)
