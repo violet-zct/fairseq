@@ -176,9 +176,8 @@ def main(args, override_args=None):
                     
                     if eval_task == 'code_extract':
                         code = codes[i]
-                        fopt.write('T-bpe-{}\t{}\n'.format(sample_id, bpe_string))
                         fopt.write('C-{}\t{}\n'.format(sample_id,
-                                                       ' '.join([str(x) for x in code.tolist() if x != -1])))
+                                                       ' '.join(["c-{}".format(x) for x in code.tolist() if x != -1])))
                     elif eval_task == 'reconstruct':
                         for j, hypo in enumerate(hypos[i][:args.nbest]):
                             code = codes[i]

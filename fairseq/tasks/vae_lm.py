@@ -62,10 +62,14 @@ class VQVAELanguageModelingTask(LanguageModelingTask):
     def extract_codes(self, sample, model):
         model.eval()
         with torch.no_grad():
-            tokens, lengths = sample['target'], sample['net_input']['src_lengths']
-            _, _, _, _, codes = model.forward_encoder(tokens, lengths)  # B x T
-            emb_inds = codes['bottom_codes']
-        return emb_inds
+            lengths, tokens = sample['net_input']['src_lengths'], sample['target']
+            codes, mask = self.task.vqvae_model.forward_encoder(tokens, lengths, extract_code_only=True,
+                                                                code_extract_strategy=getattr(self.args,
+                                                                                              'code_extract_strategy',
+                                                                                              None))
+            embed_ind = torch.argmax(codes, dim=-1)
+            embed_ind = embed_ind.masked_fill(~mask, -1)  # B x T
+        return embed_ind
 
     def reconstruct(self, sample, model, generator, prefix_tokens=None, extract_mode=None):
         with torch.no_grad():
