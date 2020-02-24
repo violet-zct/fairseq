@@ -25,6 +25,10 @@ from torch import nn
 from fairseq.models.typed_transformer import TransformerDecoder as TypedTransformerDecoder
 import numpy as np
 import math
+
+from torch.serialization import default_restore_location
+from fairseq.checkpoint_utils import _upgrade_state_dict
+
 DEFAULT_MAX_SOURCE_POSITIONS = 1024
 DEFAULT_MAX_TARGET_POSITIONS = 1024
 
@@ -81,6 +85,38 @@ def sample_topp(probs, mask, sampling_topp=0.9):
     trim_mask = (~truncated_mask)
     trimed_probs = truncated_probs.masked_fill_(trim_mask, 0)
     return trimed_probs, truncated_indices, truncated_mask
+
+
+def load_checkpoint_to_cpu(path, arg_overrides=None):
+    """Loads a checkpoint to CPU (with upgrading for backward compatibility)."""
+    state = torch.load(
+        path, map_location=lambda s, l: default_restore_location(s, 'cpu'),
+    )
+    args = state['args']
+    if arg_overrides is not None:
+        for arg_name, arg_val in arg_overrides.items():
+            setattr(args, arg_name, arg_val)
+    state = _upgrade_state_dict(state)
+    return state
+
+
+def load_model(args, path, model, fix_param=True):
+    from fairseq import tasks
+
+    use_cuda = torch.cuda.is_available() and not args.cpu
+
+    # Load ensemble
+    print('| loading model(s) from {}'.format(path))
+    state = load_checkpoint_to_cpu(path, None)
+    model.load_state_dict(state['model'], strict=True)
+
+    if fix_param:
+        for param in model.parameters():
+            param.requires_grad = False
+    if use_cuda:
+        model.cuda()
+
+    return model
 
 
 class Quantize(nn.Module):
@@ -302,6 +338,9 @@ class VQVAE(FairseqLanguageModel):
                 self.word_predict_out = nn.Parameter(torch.Tensor(len(self.decoder.dictionary), args.encoder_embed_dim))
                 nn.init.normal_(self.embed_out, mean=0, std=self.output_embed_dim ** -0.5)
 
+        if hasattr(args, 'pretrain_lm_path') and args.pretrain_lm_path is not None:
+            self.word_predict_out = nn.Parameter(torch.Tensor(len(self.decoder.dictionary), args.encoder_embed_dim))
+            nn.init.normal_(self.embed_out, mean=0, std=self.output_embed_dim ** -0.5)
         self.code_prior = code_prior
 
     @staticmethod
@@ -469,7 +508,10 @@ class VQVAE(FairseqLanguageModel):
                             help=['soft', 'argmax', 'topp'])
 
         parser.add_argument('--use-semantic-encoder', type=int, default=0,
-                            help='if true, use transformer encoder on noised input')
+                            help='if true, use transformer encoder on noised input, not implement yet')
+        parser.add_argument('--pretrain-lm-path', type=str, default=None)
+        parser.add_argument('--fine-lm', type=int, default=1)
+        parser.add_argument('--pretrain-lm-weight', type=float, default=0.5)
 
     @classmethod
     def build_model(cls, args, task):
@@ -608,6 +650,8 @@ class VQVAE(FairseqLanguageModel):
             text_decoder = TransformerDecoder(
                 args, tgt_dict, embed_tokens, no_encoder_attn=True,
             )
+            if hasattr(args, 'pretrain_lm_path') and args.pretrain_lm_path is not None:
+                text_decoder = load_model(args, args.pretrain_lm_path, text_decoder, fix_param=not args.fine_lm)
         else:
             text_decoder = TypedTransformerDecoder(
                 args,
@@ -694,6 +738,12 @@ class VQVAE(FairseqLanguageModel):
             # decoder_tokens = self.mask_words(decoder_tokens, lengths)
         decoder_out = self.forward_decoder(decoder_tokens, encoder_out=quantize_out)
         logits = decoder_out[0]
+
+        if hasattr(self.args, 'pretrain_lm_path') and self.args.pretrain_lm_path is not None:
+            alpha = self.args.pretrain_lm_weights
+            deconv_predict_logits = F.linear(quantize_out['encoder_out'], self.word_predict_out)  # B X T X V
+            logits = alpha * utils.log_softmax(logits, dim=-1, onnx_trace=self.onnx_trace) + \
+                     (1 - alpha) * utils.log_softmax(deconv_predict_logits, dim=-1, onnx_trace=self.onnx_trace)
         return logits, diff, quantize_stats, mask.sum().type_as(diff), codes, quantize_out['word_predict'], code_prior
 
     def forward_encoder(self, full_tokens, lengths, update_steps=-1, extract_code_only=False, code_extract_strategy=None):
@@ -851,7 +901,10 @@ class VQVAE(FairseqLanguageModel):
         return mask, diff, quantize_out, quantize_stats, codes
 
     def forward_decoder(self, decoder_tokens, encoder_out, incremental_state=None):
-        decoder_out = self.decoder(decoder_tokens, encoder_out=encoder_out, incremental_state=incremental_state,
+        if hasattr(self.args, 'pretrain_lm_path') and self.args.pretrain_lm_path is not None:
+            decoder_out = self.decoder(decoder_tokens, incremental_state=incremental_state)
+        else:
+            decoder_out = self.decoder(decoder_tokens, encoder_out=encoder_out, incremental_state=incremental_state,
                                    aug_input=self.aug_input)
         return decoder_out
 
