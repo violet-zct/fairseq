@@ -568,7 +568,7 @@ class VQVAE(FairseqLanguageModel):
         text_decoder = cls.build_decoder(args, src_dict, decoder_embed_tokens)
 
         if hasattr(args, 'pretrain_lm_path') and args.pretrain_lm_path is not None:
-            text_conv_encoder.embed_tokens.weight.data.copy_(text_decoder.embed_tokens.weight.data)
+            text_encoder.embed_tokens.weight.data.copy_(text_decoder.embed_tokens.weight.data)
 
         bottom_quantizer = cls.build_quantizer(args)
 
