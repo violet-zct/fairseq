@@ -61,7 +61,7 @@ srun --label python -u train.py ${DATA}\
     --criterion soft_cross_entropy \
     --context-model-path ${vqvae_model_path} --code-extract-strategy topk \
     --save-dir $SAVE --share-decoder-input-output-embed \
-    --seed 1 \
+    --seed 1 --decoder-normalize-before \
     --max-update 700000 \
     --warmup-updates 6000 --warmup-init-lr 1e-07 \
     --optimizer adam --lr 0.0003 --min-lr '1e-09' --lr-scheduler inverse_sqrt --weight-decay 0.0001 --adam-betas '(0.9, 0.98)' \
