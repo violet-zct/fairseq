@@ -108,7 +108,11 @@ def load_model(args, path, model, fix_param=True):
     # Load ensemble
     print('| loading model(s) from {}'.format(path))
     state = load_checkpoint_to_cpu(path, None)
-    model.load_state_dict(state['model'], strict=True)
+    state_dict = state['model']
+    update_state_dict = {}
+    for key in state_dict.keys():
+        update_state_dict['.'.join(key.split('.')[1:])] = state_dict[key]
+    model.load_state_dict(update_state_dict, strict=True)
 
     if fix_param:
         for param in model.parameters():
@@ -562,6 +566,9 @@ class VQVAE(FairseqLanguageModel):
 
         text_encoder, text_conv_encoder = cls.build_encoder(args, src_dict, encoder_embed_tokens)
         text_decoder = cls.build_decoder(args, src_dict, decoder_embed_tokens)
+
+        if hasattr(args, 'pretrain_lm_path') and args.pretrain_lm_path is not None:
+            text_conv_encoder.embed_tokens.weight.data.copy_(text_decoder.embed_tokens.weight.data)
 
         bottom_quantizer = cls.build_quantizer(args)
 
