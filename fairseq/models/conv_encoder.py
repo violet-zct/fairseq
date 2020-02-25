@@ -163,7 +163,7 @@ class ConvBlock(nn.Module):
 
     def forward(self, x, input_length, pad_length=0):
         # input: batch x C x T
-
+        # new_padded_length is max length
         new_length, new_padded_length, new_mask = compute_deconv_mask(input_length, pad_length, self.stride)
         residual = self.downsample(x)
         mask = new_mask.type_as(residual)
@@ -291,7 +291,7 @@ class SingleKernelFullDeConvEncoder(FairseqEncoder):
         pad_length = torch.max(original_lengths).item() + pad_num
         forward_masks = [mask]
         for s in self.strides[::-1]:
-            original_lengths, mask = compute_deconv_mask(original_lengths, pad_length, s)
+            original_lengths, _, mask = compute_deconv_mask(original_lengths, pad_length, s)
             forward_masks.append(mask)
 
         for m, deconv in zip(forward_masks[::-1][1:], self.deconv_blocks):
