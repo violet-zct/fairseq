@@ -340,7 +340,7 @@ class VQVAE(FairseqLanguageModel):
                     learned=args.decoder_learned_pos,)
             if not self.share_emb:
                 self.word_predict_out = nn.Parameter(torch.Tensor(len(self.decoder.dictionary), args.encoder_embed_dim))
-                nn.init.normal_(self.embed_out, mean=0, std=self.output_embed_dim ** -0.5)
+                nn.init.normal_(self.word_predict_out, mean=0, std=args.encoder_embed_dim ** -0.5)
 
         if hasattr(args, 'pretrain_lm_path') and args.pretrain_lm_path is not None:
             self.word_predict_out = nn.Parameter(torch.Tensor(len(self.decoder.dictionary), args.encoder_embed_dim))
@@ -747,10 +747,9 @@ class VQVAE(FairseqLanguageModel):
         logits = decoder_out[0]
 
         if hasattr(self.args, 'pretrain_lm_path') and self.args.pretrain_lm_path is not None:
-            alpha = self.args.pretrain_lm_weights
+            alpha = self.args.pretrain_lm_weight
             deconv_predict_logits = F.linear(quantize_out['encoder_out'], self.word_predict_out)  # B X T X V
-            logits = alpha * utils.log_softmax(logits, dim=-1, onnx_trace=self.onnx_trace) + \
-                     (1 - alpha) * utils.log_softmax(deconv_predict_logits, dim=-1, onnx_trace=self.onnx_trace)
+            logits = alpha * utils.log_softmax(logits, dim=-1) + (1 - alpha) * utils.log_softmax(deconv_predict_logits, dim=-1)
         return logits, diff, quantize_stats, mask.sum().type_as(diff), codes, quantize_out['word_predict'], code_prior
 
     def forward_encoder(self, full_tokens, lengths, update_steps=-1, extract_code_only=False, code_extract_strategy=None):
