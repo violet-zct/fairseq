@@ -40,7 +40,7 @@ class SoftCrossEntropyCriterion(FairseqCriterion):
         else:
             if codes.size(1) == 1:
                 src_tokens = codes
-                prev_output_masks = ~mask
+                prev_output_masks = ~mask  # mask sets padding to be True
                 target, target_mask = codes, mask
             else:
                 src_tokens = codes[:, :-1]

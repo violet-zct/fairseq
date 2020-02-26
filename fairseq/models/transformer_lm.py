@@ -150,8 +150,9 @@ class TransformerLanguageModel(FairseqLanguageModel):
 
 def Embedding(num_embeddings, embedding_dim, padding_idx, weight=None):
     m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx, _weight=weight)
-    nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
-    nn.init.constant_(m.weight[padding_idx], 0)
+    if weight is None:
+        nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
+        nn.init.constant_(m.weight[padding_idx], 0)
     return m
 
 
