@@ -749,7 +749,10 @@ class VQVAE(FairseqLanguageModel):
         if hasattr(self.args, 'pretrain_lm_path') and self.args.pretrain_lm_path is not None:
             alpha = self.args.pretrain_lm_weight
             deconv_predict_logits = F.linear(quantize_out['encoder_out'], self.word_predict_out)  # B X T X V
-            logits = alpha * utils.log_softmax(logits, dim=-1) + (1 - alpha) * utils.log_softmax(deconv_predict_logits, dim=-1)
+            if alpha > 0:
+                logits = alpha * utils.log_softmax(logits, dim=-1) + (1 - alpha) * utils.log_softmax(deconv_predict_logits, dim=-1)
+            else:
+                logits = decoder_out[0] + deconv_predict_logits
         return logits, diff, quantize_stats, mask.sum().type_as(diff), codes, quantize_out['word_predict'], code_prior
 
     def forward_encoder(self, full_tokens, lengths, update_steps=-1, extract_code_only=False, code_extract_strategy=None):
@@ -920,7 +923,10 @@ class VQVAE(FairseqLanguageModel):
             if step > (encoder_out['encoder_out'].size(1) - 1):
                 step = encoder_out['encoder_out'].size(1) - 1
             deconv_predict_logits = F.linear(encoder_out['encoder_out'][:, step:step+1, :], self.word_predict_out)  # B X 1 X V
-            logits = alpha * utils.log_softmax(decoder_out[0], dim=-1) + (1 - alpha) * utils.log_softmax(deconv_predict_logits, dim=-1)
+            if alpha > 0:
+                logits = alpha * utils.log_softmax(decoder_out[0], dim=-1) + (1 - alpha) * utils.log_softmax(deconv_predict_logits, dim=-1)
+            else:
+                logits = decoder_out[0] + deconv_predict_logits
             decoder_out = (logits, *decoder_out[1:])
         return decoder_out
 
