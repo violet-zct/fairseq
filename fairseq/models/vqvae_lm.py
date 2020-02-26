@@ -917,9 +917,11 @@ class VQVAE(FairseqLanguageModel):
                 hasattr(self.args, 'pretrain_lm_path') and self.args.pretrain_lm_path is not None:
             alpha = self.args.pretrain_lm_weight
             step = decoder_tokens.size(1)
+            if step > (encoder_out['encoder_out'].size(1) - 1):
+                step = encoder_out['encoder_out'].size(1) - 1
             deconv_predict_logits = F.linear(encoder_out['encoder_out'][:, step:step+1, :], self.word_predict_out)  # B X 1 X V
             logits = alpha * utils.log_softmax(decoder_out[0], dim=-1) + (1 - alpha) * utils.log_softmax(deconv_predict_logits, dim=-1)
-            decoder_out[0] = logits
+            decoder_out = (logits, *decoder_out[1:])
         return decoder_out
 
     def max_positions(self):
