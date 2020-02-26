@@ -344,7 +344,10 @@ class VQVAE(FairseqLanguageModel):
 
         if hasattr(args, 'pretrain_lm_path') and args.pretrain_lm_path is not None:
             self.word_predict_out = nn.Parameter(torch.Tensor(len(self.decoder.dictionary), args.encoder_embed_dim))
-            nn.init.normal_(self.word_predict_out, mean=0, std=args.encoder_embed_dim ** -0.5)
+            if args.pretrain_lm_weight > 0:
+                nn.init.normal_(self.word_predict_out, mean=0, std=args.encoder_embed_dim ** -0.5)
+            else:
+                nn.init.zeros_(self.word_predict_out)
         self.code_prior = code_prior
 
     @staticmethod
