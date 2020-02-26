@@ -906,18 +906,18 @@ class VQVAE(FairseqLanguageModel):
             codes = None
         return mask, diff, quantize_out, quantize_stats, codes
 
-    def forward_decoder(self, decoder_tokens, encoder_out, incremental_state=None, deconv_outputs=None):
+    def forward_decoder(self, decoder_tokens, encoder_out, incremental_state=None):
         if hasattr(self.args, 'pretrain_lm_path') and self.args.pretrain_lm_path is not None:
             decoder_out = self.decoder(decoder_tokens, incremental_state=incremental_state)
         else:
             decoder_out = self.decoder(decoder_tokens, encoder_out=encoder_out, incremental_state=incremental_state,
                                    aug_input=self.aug_input)
 
-        if incremental_state is not None and deconv_outputs is not None and \
+        if incremental_state is not None and encoder_out is not None and \
                 hasattr(self.args, 'pretrain_lm_path') and self.args.pretrain_lm_path is not None:
             alpha = self.args.pretrain_lm_weight
             step = decoder_tokens.size(1)
-            deconv_predict_logits = F.linear(deconv_outputs['encoder_out'][:, step:step+1, :], self.word_predict_out)  # B X 1 X V
+            deconv_predict_logits = F.linear(encoder_out['encoder_out'][:, step:step+1, :], self.word_predict_out)  # B X 1 X V
             logits = alpha * utils.log_softmax(decoder_out[0], dim=-1) + (1 - alpha) * utils.log_softmax(deconv_predict_logits, dim=-1)
             decoder_out[0] = logits
         return decoder_out
