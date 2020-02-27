@@ -519,6 +519,7 @@ class VQVAE(FairseqLanguageModel):
         parser.add_argument('--pretrain-lm-path', type=str, default=None)
         parser.add_argument('--fine-lm', type=int, default=1)
         parser.add_argument('--pretrain-lm-weight', type=float, default=0.5)
+        parser.add_argument('--num-updates', type=int, default=0)
 
     @classmethod
     def build_model(cls, args, task):

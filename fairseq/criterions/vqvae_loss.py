@@ -41,7 +41,7 @@ class VQVAELabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         self.commitment_cost = args.commitment_cost
         self.commit_warm_up_steps = args.commitment_cost_warm_up_steps
         self.commit_anneal_steps = args.commitment_cost_anneal_steps
-        self.updates = 0
+        self.updates = args.num_updates if hasattr(args, 'num_updates') else 0
         self.latent_k = args.bottom_latent_k
         self.word_predict_loss_weight = getattr(args, 'aug_loss_weight', 0)
 
