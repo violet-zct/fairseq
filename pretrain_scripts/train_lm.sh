@@ -62,8 +62,9 @@ srun --label python -u train.py ${DATA} \
     --max-update 10000000 \
     --warmup-updates 6000 --warmup-init-lr 1e-07 \
     --optimizer adam --lr 0.0003 --min-lr '1e-09' --lr-scheduler inverse_sqrt --weight-decay 0.0001 --adam-betas '(0.9, 0.98)' \
-    --tokens-per-sample 1024 --max-tokens 8072 --share-decoder-input-output-embed \
-    --sample-break-mode 'eos' --skip-invalid-size-inputs-valid-test --ddp-backend=no_c10d \
+    --share-decoder-input-output-embed \
+    --tokens-per-sample 256 --max-tokens 8072 --max-target-positions 1024 \
+    --sample-break-mode 'complete_doc' --skip-invalid-size-inputs-valid-test --ddp-backend=no_c10d \
     --label-smoothing 0.1 --decoder-normalize-before \
     --keep-last-epochs 5 \
     --dataset-impl mmap \

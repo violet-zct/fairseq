@@ -1,7 +1,7 @@
 #! /bin/bash
 ##SBATCH --output=/checkpoint/chuntinz/fairseq/logs/slurm-%A.out
 ##SBATCH --error=/checkpoint/chuntinz/fairseq/logs/slurm-%A.err
-#SBATCH --job-name=pretrain.v4.doc.c0.25.65536.chunk.512.no.shard
+#SBATCH --job-name=pretrain.min=5.ft
 ##SBATCH --partition=priority
 ##SBATCH --comment="2.6 ICML"
 #SBATCH --partition=learnfair
@@ -59,7 +59,7 @@ SAVE_ROOT=/checkpoint/chuntinz/work/fairseq/saved_models
 
 PORT=15213
 model=vqvae_lm_base
-run_name="vqvae_65536_with_pretrain_lm_0.5_ft_nooverlap"
+run_name="vqvae_65536_with_pretrain_lm_0.5_ft_nooverlap_mintemp_5"
 SAVE=${SAVE_ROOT}/$model_${run_name}
 mkdir -p ${SAVE}
 
@@ -85,14 +85,14 @@ srun --label python -u train.py ${DATA} \
     --encoder-form 'no_overlap_conv' \
     --bottom-conv-stride '2,2' \
     --bottom-conv-kernel-size '5,5' \
-    --soft-em 1 --soft-max-temp 15.0 --soft-min-temp 15.0 \
-    --soft-temp-anneal-steps 0 --soft-samples 10 \
+    --soft-em 1 --soft-max-temp 15.0 --soft-min-temp 5.0 \
+    --soft-temp-anneal-steps 30000 --soft-samples 10 \
     --commitment-cost 0.25 \
     --max-update 700000 \
     --warmup-updates 6000 --warmup-init-lr 1e-07 \
     --optimizer adam --lr 0.0003 --min-lr '1e-09' --lr-scheduler inverse_sqrt --weight-decay 0.0001 --adam-betas '(0.9, 0.98)' \
     --update-freq 1  --save-interval-updates 20000 \
-    --tokens-per-sample 256 --max-tokens 8072 --max-target-positions 1024 \
+    --tokens-per-sample 256 --max-tokens 6084 --max-target-positions 1024 \
     --sample-break-mode 'complete_doc' --skip-invalid-size-inputs-valid-test --ddp-backend=no_c10d \
     --label-smoothing 0.1 \
     --keep-last-epochs 5 \
