@@ -51,7 +51,7 @@ DATA='/checkpoint/chuntinz/work/data/data-bin/doc-ende19-v2'
 DATA='/private/home/chuntinz/work/data/data-bin/shard-doc-ende19/shard8'
 model=transformer_lm
 PORT=15213
-SAVE=${SAVE_ROOT}/lm_shard_${model_name}
+SAVE=${SAVE_ROOT}/lm_prior_topk_${model_name}
 mkdir -p ${SAVE}
 
 cp $0 ${SAVE}/train_prior.sh
@@ -62,12 +62,13 @@ srun --label python -u train.py ${DATA}\
     --criterion soft_cross_entropy \
     --context-model-path ${vqvae_model_path} --code-extract-strategy argmax \
     --save-dir $SAVE --share-decoder-input-output-embed \
-    --seed 1 \
-    --max-update 70000000 \
+    --seed 1 --decoder-normalize-before \
+    --max-update 70000000 --tokens-per-sample 256 --max-tokens 6084 --max-target-positions 1024 \
+    --sample-break-mode 'complete_doc'\
     --warmup-updates 6000 --warmup-init-lr 1e-07 \
     --optimizer adam --lr 0.0003 --min-lr '1e-09' --lr-scheduler inverse_sqrt --weight-decay 0.0001 --adam-betas '(0.9, 0.98)' \
     --skip-invalid-size-inputs-valid-test --ddp-backend=no_c10d \
-    --keep-last-epochs 5 --max-tokens 4096 --num-workers 0 \
-    --dataset-impl mmap --decoder-normalize-before --share-decoder-input-output-embed \
+    --keep-last-epochs 5 --num-workers 0 \
+    --dataset-impl mmap \
     --log-format simple --log-interval 500 | tee ${SAVE}/log.txt
 

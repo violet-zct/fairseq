@@ -1,7 +1,7 @@
 #! /bin/bash
 ##SBATCH --output=/checkpoint/chuntinz/fairseq/logs/slurm-%A.out
 ##SBATCH --error=/checkpoint/chuntinz/fairseq/logs/slurm-%A.err
-#SBATCH --job-name=pretrain.min=5.fix
+#SBATCH --job-name=pretrain.min=5.ft.no.weight
 ##SBATCH --partition=priority
 ##SBATCH --comment="2.6 ICML"
 #SBATCH --partition=learnfair
@@ -59,7 +59,7 @@ SAVE_ROOT=/checkpoint/chuntinz/work/fairseq/saved_models
 
 PORT=15213
 model=vqvae_lm_base
-run_name="vqvae_65536_with_pretrain_lm_0.5_fix_nooverlap_mintemp_5"
+run_name="vqvae_65536_pretrain_lm_ft_c33_mintemp_5"
 SAVE=${SAVE_ROOT}/$model_${run_name}
 mkdir -p ${SAVE}
 
@@ -69,7 +69,7 @@ srun --label python -u train.py ${DATA} \
     --arch ${model} \
     --pretrain-lm-path $SAVE_ROOT/pretrain_lm_doc_mono/checkpoint_last.pt \
     --distributed-port $PORT --distributed-world-size 16 \
-    --fine-lm 0 --pretrain-lm-weight 0.5 \
+    --fine-lm 1 --pretrain-lm-weight 0 \
     --task VQVAE_language_modeling \
     --criterion vqvae_label_smoothed_cross_entropy \
     --save-dir $SAVE \
@@ -82,9 +82,9 @@ srun --label python -u train.py ${DATA} \
     --bottom-latent-k 65536 \
     --tensorboard-logdir ./tb-logs/$run_name \
     --add-latent-positions 0 \
-    --encoder-form 'no_overlap_conv' \
+    --encoder-form 'conv' \
     --bottom-conv-stride '2,2' \
-    --bottom-conv-kernel-size '5,5' \
+    --bottom-conv-kernel-size '3,3' \
     --soft-em 1 --soft-max-temp 15.0 --soft-min-temp 5.0 \
     --soft-temp-anneal-steps 30000 --soft-samples 10 \
     --commitment-cost 0.25 \
@@ -92,7 +92,7 @@ srun --label python -u train.py ${DATA} \
     --warmup-updates 6000 --warmup-init-lr 1e-07 \
     --optimizer adam --lr 0.0003 --min-lr '1e-09' --lr-scheduler inverse_sqrt --weight-decay 0.0001 --adam-betas '(0.9, 0.98)' \
     --update-freq 1  --save-interval-updates 20000 \
-    --tokens-per-sample 256 --max-tokens 8072 --max-target-positions 1024 \
+    --tokens-per-sample 256 --max-tokens 6084 --max-target-positions 1024 \
     --sample-break-mode 'complete_doc' --skip-invalid-size-inputs-valid-test --ddp-backend=no_c10d \
     --label-smoothing 0.1 \
     --keep-last-epochs 5 \
