@@ -923,7 +923,7 @@ class VQVAE(FairseqLanguageModel):
         if incremental_state is not None and encoder_out is not None and \
                 hasattr(self.args, 'pretrain_lm_path') and self.args.pretrain_lm_path is not None:
             alpha = self.args.pretrain_lm_weight
-            step = decoder_tokens.size(1)
+            step = decoder_tokens.size(1) + 1
             if step > (encoder_out['encoder_out'].size(1) - 1):
                 step = encoder_out['encoder_out'].size(1) - 1
             deconv_predict_logits = F.linear(encoder_out['encoder_out'][:, step:step+1, :], self.word_predict_out)  # B X 1 X V
