@@ -7,6 +7,7 @@ source activate py36
 
 #DATA=../data/wikitext-clean-bpe
 DATA=/checkpoint/chuntinz/work/data/data-bin/doc-ende19-v2
+DATA=/checkpoint/chuntinz/work/data/data-bin/shard-doc-ende19/shard8
 SAVE_ROOT=/checkpoint/chuntinz/work/fairseq/saved_models
 
 models=( pretrain_doc19_oft_tau_15_shrink_4_window_3_deconv_8192_exp_10k pretrain_doc19_soft_tau_15_shrink_4_window_3_deconv_8192_exp_10k_new_conv pretrain_doc19_soft_tau_15_shrink_4_chunk_512_deconv_8192_exp_10k pretrain_doc19_soft_tau_15_shrink_4_window_3_deconv_16384_exp_10k pretrain_doc19_soft_tau_15_shrink_4_chunk_512_deconv_16384_exp_10k pretrain_doc19_soft_tau_15_shrink_4_window_3_deconv_32768_exp_10k pretrain_doc19_soft_tau_15_shrink_4_chunk_512_deconv_32768_exp_10k )
@@ -23,20 +24,12 @@ models=( pretrain_c0.25_doc19_soft_tau_15_chunk_512_65536_no_shard_exp_10k pretr
 
 models=( pretrain_c0.25_doc19_soft_tau_15_chunk_256_65536_no_shard_exp_10k )
 models=( v4_pretrain_c0.25_doc19_soft_15_chunk_256_65536_no_shard_exp_10k)
+models=( nooverlap_pretrain_c0.25_doc19_soft_15_chunk_256_65536_no_shard_exp_10k )
 #models=( pretrain_c0.25_no_shard_doc19_soft_tau_15_chunk_512_32768_exp_10k )
 
 #models=( pretrain_doc19_soft_tau_15_shrink_4_chunk_512_deconv_65536_exp_10k_stride_later )
 #models=( pretrain_c0.1_doc19_soft_tau_15_chunk_512_32768_no_shard_exp_10k pretrain_c0.1_doc19_soft_tau10_s5_chunk_512_32768_no_shard_exp_10k pretrain_c0.25_doc19_hard_chunk_512_32768_exp_10k  pretrain_c0.25_doc19_soft_tau_10_sample_1_chunk_512_32768 pretrain_c0.1_doc19_soft_tau_15_chunk_512_65536_no_shard_exp_10k pretrain_c0.1_doc19_soft_tau10_s5_chunk_512_65536_no_shard_exp_10k )
 
-models=( vqvae_65536_with_pretrain_lm_0.5_ft_nooverlap vqvae_65536_with_pretrain_lm_0.5_ft_nooverlap_mintemp_5 vqvae_65536_with_pretrain_lm_0.5_fix_nooverlap_mintemp_5 vqvae_65536_with_pretrain_lm_0.5_fix_nooverlap )
-
-models=( vqvae_65536_pretrain_lm_ft_c33_mintemp_5 )
-#models=( vqvae_65536_with_pretrain_lm_0.5_ft_nooverlap vqvae_65536_with_pretrain_lm_0.5_fix_nooverlap )
-#models=( vqvae_65536_with_pretrain_lm_0.5_ft_nooverlap )
-
-models=( vqvae_65536_pretrain_lm_fix_c33_mintemp_5 vqvae_65536_pretrain_lm_ft_c33_mintemp_5 vqvae_65536_pretrain_lm_fix_no_overlap_mintemp_5 )
-
-    #--sampling --sampling-topk 10 \
 for i in ${!models[*]}
 do  
     model=${models[$i]}
@@ -45,20 +38,21 @@ do
     echo ${model}
     SAVE=${SAVE_ROOT}/${model}
 
-    cp $0 ${SAVE}/reconstruct.sh
+    cp $0 ${SAVE}/extract.sh
 
     CUDA_VISIBLE_DEVICES=1 python -u vqvae_extract_eval.py ${DATA} \
     --vqvae-path $SAVE/checkpoint_best.pt --code-extract-strategy argmax \
-    --eval-task reconstruct --seed 7 \
+    --eval-task code_extract --seed 7 \
     --task VQVAE_language_modeling \
-    --max-tokens 5072 --shard-id 0 \
+    --max-tokens 16072 --shard-id 0 \
     --results-path $SAVE --remove-bpe "@@ " \
     --gen-subset 'valid' --dataset-impl mmap \
     --skip-invalid-size-inputs-valid-test \
-    --log-format simple --log-interval 500 | tee ${SAVE}/reconstruct_log.txt
+    --log-format simple --log-interval 500 | tee ${SAVE}/extract_log.txt
     
     #echo $i
     #if [ $i = 0 ];then exit;fi
 done
 
 
+    #--model-overrides "{'use_stride_first':${use_stride_first}}" \

@@ -28,15 +28,9 @@ models=( v4_pretrain_c0.25_doc19_soft_15_chunk_256_65536_no_shard_exp_10k)
 #models=( pretrain_doc19_soft_tau_15_shrink_4_chunk_512_deconv_65536_exp_10k_stride_later )
 #models=( pretrain_c0.1_doc19_soft_tau_15_chunk_512_32768_no_shard_exp_10k pretrain_c0.1_doc19_soft_tau10_s5_chunk_512_32768_no_shard_exp_10k pretrain_c0.25_doc19_hard_chunk_512_32768_exp_10k  pretrain_c0.25_doc19_soft_tau_10_sample_1_chunk_512_32768 pretrain_c0.1_doc19_soft_tau_15_chunk_512_65536_no_shard_exp_10k pretrain_c0.1_doc19_soft_tau10_s5_chunk_512_65536_no_shard_exp_10k )
 
-models=( vqvae_65536_with_pretrain_lm_0.5_ft_nooverlap vqvae_65536_with_pretrain_lm_0.5_ft_nooverlap_mintemp_5 vqvae_65536_with_pretrain_lm_0.5_fix_nooverlap_mintemp_5 vqvae_65536_with_pretrain_lm_0.5_fix_nooverlap )
+models=( vqvae_65536_with_pretrain_lm_0.5_ft_nooverlap vqvae_65536_with_pretrain_lm_0.5_fix_nooverlap )
+#models=( vqvae_65536_with_pretrain_lm_0.5_ft_nooverlap_mintemp_5 vqvae_65536_with_pretrain_lm_0.5_fix_nooverlap_mintemp_5 )
 
-models=( vqvae_65536_pretrain_lm_ft_c33_mintemp_5 )
-#models=( vqvae_65536_with_pretrain_lm_0.5_ft_nooverlap vqvae_65536_with_pretrain_lm_0.5_fix_nooverlap )
-#models=( vqvae_65536_with_pretrain_lm_0.5_ft_nooverlap )
-
-models=( vqvae_65536_pretrain_lm_fix_c33_mintemp_5 vqvae_65536_pretrain_lm_ft_c33_mintemp_5 vqvae_65536_pretrain_lm_fix_no_overlap_mintemp_5 )
-
-    #--sampling --sampling-topk 10 \
 for i in ${!models[*]}
 do  
     model=${models[$i]}
@@ -48,8 +42,9 @@ do
     cp $0 ${SAVE}/reconstruct.sh
 
     CUDA_VISIBLE_DEVICES=1 python -u vqvae_extract_eval.py ${DATA} \
-    --vqvae-path $SAVE/checkpoint_best.pt --code-extract-strategy argmax \
+    --vqvae-path $SAVE/checkpoint_last.pt --code-extract-strategy full \
     --eval-task reconstruct --seed 7 \
+    --sampling --sampling-topk 10 \
     --task VQVAE_language_modeling \
     --max-tokens 5072 --shard-id 0 \
     --results-path $SAVE --remove-bpe "@@ " \

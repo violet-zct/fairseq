@@ -125,8 +125,8 @@ class TransformerLanguageModel(FairseqLanguageModel):
             if hasattr(task, 'vqvae_model'):
                 vocab_size = args.codebook_size
                 assert args.decoder_input_dim == task.vqvae_model.bottom_quantizer.dim
-                code_embed_init = task.vqvae_model.bottom_quantizer.embed.transpose(0, 1)
-                embed_tokens = Embedding(vocab_size, args.decoder_input_dim, padding_idx=None, weight=code_embed_init)
+                code_embed_init = task.vqvae_model.bottom_quantizer.embed.data.transpose(0, 1)
+                embed_tokens = Embedding(vocab_size, args.decoder_input_dim, padding_idx=None, weight=None)
             else:
                 embed_tokens = Embedding(len(task.source_dictionary), args.decoder_input_dim, task.source_dictionary.pad())
 
