@@ -550,9 +550,10 @@ class TransformerDecoder(FairseqIncrementalDecoder):
             x = self.embed_scale * self.embed_tokens(tokens)
 
         else:
-            embed = (tokens @ self.embed_tokens.weight)
-            embed = embed * (~mask).type_as(embed).unsqueeze(-1)
-            x = self.embed_scale * embed
+            # embed = (tokens @ self.embed_tokens.weight)
+            embed = self.embed_scale * self.embed_tokens(tokens)
+            x = embed * (~mask).type_as(embed).unsqueeze(-1)
+
             tokens = torch.ones((tokens.size(0), tokens.size(1))).long().to(embed.device) * 100
             tokens = tokens.masked_fill(mask, self.padding_idx)
             positions = self.embed_positions(tokens)
