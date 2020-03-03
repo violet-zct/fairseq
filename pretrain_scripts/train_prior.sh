@@ -3,7 +3,7 @@
 ##SBATCH --error=/checkpoint/chuntinz/fairseq/logs/slurm-%A.err
 #SBATCH --job-name=soft.transformer.lm.topk
 #SBATCH --partition=priority
-#SBATCH --comment="icml 2.7"
+#SBATCH --comment="eccv 3.5"
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=8
 #SBATCH --gres=gpu:8
@@ -43,14 +43,15 @@ source activate py36
 DATE=`date +%Y%m%d`
 model_name='soft_lm_65536_4'
 vqvae_model_root=/checkpoint/chuntinz/work/fairseq/saved_models
-vqvae_model=pretrain_c0.25_doc19_soft_tau_15_chunk_256_65536_no_shard_exp_10k
+#vqvae_model=pretrain_c0.25_doc19_soft_tau_15_chunk_256_65536_no_shard_exp_10k
+vqvae_model=nooverlap_pretrain_c0.25_doc19_soft_15_chunk_256_65536_no_shard_exp_10k
 vqvae_model_path=${vqvae_model_root}/${vqvae_model}/checkpoint_last.pt
 SAVE_ROOT=/checkpoint/chuntinz/work/fairseq/saved_models
 DATA='/checkpoint/chuntinz/work/data/data-bin/doc-ende19-v2'
 #DATA='/private/home/chuntinz/work/data/data-bin/shard-doc-ende19/shard0'
 model=transformer_lm
 PORT=15213
-SAVE=${SAVE_ROOT}/lm_prior_topk_${model_name}
+SAVE=${SAVE_ROOT}/lm_prior_argmax_${model_name}
 mkdir -p ${SAVE}
 
 cp $0 ${SAVE}/train_prior.sh
@@ -59,7 +60,7 @@ srun --label python -u train.py ${DATA}\
     --arch ${model} --distributed-port $PORT --distributed-world-size 16 \
     --task soft_language_modeling \
     --criterion soft_cross_entropy \
-    --context-model-path ${vqvae_model_path} --code-extract-strategy topk \
+    --context-model-path ${vqvae_model_path} --code-extract-strategy argmax \
     --save-dir $SAVE --share-decoder-input-output-embed \
     --seed 1 --decoder-normalize-before \
     --max-update 700000 \
