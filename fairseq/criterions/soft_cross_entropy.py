@@ -57,6 +57,7 @@ class SoftCrossEntropyCriterion(FairseqCriterion):
         """
         shifted_src_tokens, lengths, target_tokens = sample['net_input']['src_tokens'], \
                                                      sample['net_input']['src_lengths'], sample['target']
+        self.task.vqvae_model.eval()
         with torch.no_grad():
             # codes are weighted one_hot matrix: B x T x |V|
             # mask: B x T, set pad to be False
