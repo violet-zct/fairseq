@@ -118,6 +118,7 @@ class SoftCrossEntropyCriterion(FairseqCriterion):
         return loss, nll_loss
 
     def compute_loss(self, lprobs, target, non_pad_mask=None, reduce=True):
+        lprobs = lprobs.view(-1, lprobs.size(-1))
         target = target.view(-1, 1)
         non_pad_mask = non_pad_mask.view(-1, 1)
         nll_loss = -lprobs.gather(dim=-1, index=target)
