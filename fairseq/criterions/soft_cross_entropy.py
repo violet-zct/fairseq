@@ -65,22 +65,26 @@ class SoftCrossEntropyCriterion(FairseqCriterion):
                                                                                             'code_extract_strategy',
                                                                                             None))
             codes = torch.argmax(codes, dim=-1)
-            batch = mask.size(1)
+            batch = mask.size(0)
             code_num = mask.sum(1).eq(mask.size(1))
 
-            # before appending eos to each sentence, we create src_tokens by right-shift 1
-            # 1 3 x      e 1 3 x
-            # 2 x x  ->  e 2 x x
-            # 3 4 5      e 3 4 5
-            src_tokens = torch.cat([codes.new_full((codes.size(0), 1), self.eos_idx), codes[:, :-1]], dim=1)
             if torch.any(code_num):
+                # 1 3 x      1 3 x e
+                # 2 x x  ->  2 x x e
+                # 3 4 5      3 4 5 e
                 mask = torch.cat([mask, mask.new_full((batch, 1), False)], dim=-1)
                 codes = torch.cat([codes, codes.new_full((batch, 1), self.eos_idx)], dim=-1)
-            # 1 3 x      1 3 e x
-            # 2 x x  ->  2 e x x
-            # 3 4 5      3 4 5 e
+
+            # before appending eos to each sentence, we create src_tokens by right-shift 1
+            # 1 3 x e      e 1 3 x
+            # 2 x x e  ->  e 2 x x
+            # 3 4 5 e      e 3 4 5
+            src_tokens = torch.cat([codes.new_full((codes.size(0), 1), self.eos_idx), codes[:, :-1]], dim=1)
+            # 1 3 x e      1 3 e e
+            # 2 x x e  ->  2 e x e
+            # 3 4 5 e      3 4 5 e
             sort_index = torch.argsort(mask.float(), -1, descending=False)[:, 0]
-            assert torch.any(sort_index.eq(0).any()), 'the first word is eos!'
+            assert not torch.any(sort_index.eq(0)), 'the first word is eos!'
             # set the last index to be eos
             codes[torch.arange(batch).to(codes), sort_index] = self.eos_idx
             mask[torch.arange(batch).to(codes), sort_index] = True  # set actual tokens to be True
