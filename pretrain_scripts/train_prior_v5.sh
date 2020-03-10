@@ -59,15 +59,15 @@ cp $0 ${SAVE}/train_prior.sh
 srun --label python -u train.py ${DATA}\
     --arch ${model} --distributed-port $PORT --distributed-world-size 16 \
     --task soft_language_modeling \
-    --criterion soft_cross_entropy \
+    --criterion soft_cross_entropy --label-smoothing 0.0 \
     --context-model-path ${vqvae_model_path} --code-extract-strategy argmax \
     --save-dir $SAVE --share-decoder-input-output-embed \
     --seed 1 --decoder-normalize-before \
-    --max-update 700000 \
+    --max-update 70000000 \
     --warmup-updates 6000 --warmup-init-lr 1e-07 \
     --optimizer adam --lr 0.0003 --min-lr '1e-09' --lr-scheduler inverse_sqrt --weight-decay 0.0001 --adam-betas '(0.9, 0.98)' \
-    -invalid-size-inputs-valid-test --ddp-backend=no_c10d \
-    --keep-last-epochs 5 --max-tokens 4096 --num-workers 0 \
+    --skip-invalid-size-inputs-valid-test --ddp-backend=no_c10d \
+    --keep-last-epochs 5 --max-tokens 6084 --num-workers 0 \
     --dataset-impl mmap \
     --log-format simple --log-interval 500 | tee ${SAVE}/log.txt
 
