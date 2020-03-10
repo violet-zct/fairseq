@@ -117,6 +117,7 @@ def load_model(args, path, model, fix_param=True):
     if fix_param:
         for param in model.parameters():
             param.requires_grad = False
+        model.eval()
     if use_cuda:
         model.cuda()
 
