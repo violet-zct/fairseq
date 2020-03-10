@@ -44,14 +44,15 @@ DATE=`date +%Y%m%d`
 model_name='soft_lm_65536_4'
 vqvae_model_root=/checkpoint/chuntinz/work/fairseq/saved_models
 #vqvae_model=pretrain_c0.25_doc19_soft_tau_15_chunk_256_65536_no_shard_exp_10k
-vqvae_model=nooverlap_pretrain_c0.25_doc19_soft_15_chunk_256_65536_no_shard_exp_10k
+#vqvae_model=nooverlap_pretrain_c0.25_doc19_soft_15_chunk_256_65536_no_shard_exp_10k
+vqvae_model=vqvae_65536_pretrain_lm_fix_c33_mintemp_5
 vqvae_model_path=${vqvae_model_root}/${vqvae_model}/checkpoint_last.pt
 SAVE_ROOT=/checkpoint/chuntinz/work/fairseq/saved_models
 DATA='/checkpoint/chuntinz/work/data/data-bin/doc-ende19-v2'
 DATA='/private/home/chuntinz/work/data/data-bin/shard-doc-ende19/shard8'
 model=transformer_lm
 PORT=15213
-SAVE=${SAVE_ROOT}/lm_prior_topk_${model_name}
+SAVE=${SAVE_ROOT}/lm_prior_argmax_shard_v5_${model_name}
 mkdir -p ${SAVE}
 
 cp $0 ${SAVE}/train_prior.sh
@@ -59,7 +60,7 @@ cp $0 ${SAVE}/train_prior.sh
 srun --label python -u train.py ${DATA}\
     --arch ${model} --distributed-port $PORT --distributed-world-size 8 \
     --task soft_language_modeling \
-    --criterion soft_cross_entropy \
+    --criterion soft_cross_entropy --label-smoothing 0.0 \
     --context-model-path ${vqvae_model_path} --code-extract-strategy argmax \
     --save-dir $SAVE --share-decoder-input-output-embed \
     --seed 1 --decoder-normalize-before \
