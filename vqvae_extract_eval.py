@@ -189,6 +189,16 @@ def main(args, override_args=None):
                                 tgt_dict=dictionary,
                                 remove_bpe=args.remove_bpe,
                             )
+                            _, hypo_str_bpe, _ = utils.post_process_prediction(
+                                    hypo_tokens=hypo['tokens'].int().cpu()[:len(tokens)-1],
+                                src_str="",
+                                alignment=hypo['alignment'],
+                                align_dict=None,
+                                tgt_dict=dictionary,
+                                remove_bpe=None,
+                            )
+                            
+                            fopt.write('H-bpe-{}\t{}\t{}\n'.format(sample_id, hypo['score'], hypo_str_bpe))
                             fopt.write('H-{}\t{}\t{}\n'.format(sample_id, hypo['score'], hypo_str))
                             code_str = ""
                             if topk is not None:
@@ -198,7 +208,7 @@ def main(args, override_args=None):
                                 code_str += " ".join(["c{}-{}".format(ii, kk) for kk in token_code if kk != -1]) + ' '
                                 if topk is not None:
                                     prob_str += " ".join(["p{}-{:.2f}".format(ii, kk.item()) for kk, mm in zip(sent_topk[ii], token_code) if mm != -1]) + ' '
-                            fopt.write('C-{}\n'.format(code_str))
+                            fopt.write('C-{}\t{}\n'.format(sample_id, code_str))
                             if topk is not None:
                                 fopt.write('K-{}\n'.format(prob_str))
                             if hypo['attention'] is not None:
