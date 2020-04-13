@@ -48,7 +48,7 @@ SAVE_ROOT=/checkpoint/chuntinz/work/fairseq/saved_models
 PORT=15213
 model=transformer_lm
 
-SAVE=${SAVE_ROOT}/pretrain_lm_doc_mono_share
+SAVE=${SAVE_ROOT}/pretrain_lm_doc_mono
 mkdir -p ${SAVE}
 
 cp $0 ${SAVE}/run.sh
@@ -62,7 +62,6 @@ srun --label python -u train.py ${DATA} \
     --max-update 10000000 \
     --warmup-updates 6000 --warmup-init-lr 1e-07 \
     --optimizer adam --lr 0.0003 --min-lr '1e-09' --lr-scheduler inverse_sqrt --weight-decay 0.0001 --adam-betas '(0.9, 0.98)' \
-    --share-decoder-input-output-embed \
     --tokens-per-sample 256 --max-tokens 8072 --max-target-positions 1024 \
     --sample-break-mode 'complete_doc' --skip-invalid-size-inputs-valid-test --ddp-backend=no_c10d \
     --label-smoothing 0.1 --decoder-normalize-before \
