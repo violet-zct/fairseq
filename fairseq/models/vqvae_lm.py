@@ -755,8 +755,17 @@ class VQVAE(FairseqLanguageModel):
             alpha = self.args.pretrain_lm_weight
             deconv_predict_logits = F.linear(quantize_out['encoder_out'], self.word_predict_out)  # B X T X V
             if alpha > 0:
-                logits = alpha * utils.log_softmax(logits, dim=-1) + (1 - alpha) * utils.log_softmax(deconv_predict_logits, dim=-1)
+                # logits = alpha * utils.log_softmax(logits, dim=-1) + (1 - alpha) * utils.log_softmax(deconv_predict_logits, dim=-1)
+                if self.training:
+                    random_drop = (deconv_predict_logits.new_ones(
+                        *deconv_predict_logits.size()[:2]).uniform_() < alpha
+                        ).type_as(deconv_predict_logits).unsqueeze(-1)
+                else:
+                    random_drop = 1. / alpha
+                
+                logits = decoder_out[0] + deconv_predict_logits * random_drop
             else:
+                
                 logits = decoder_out[0] + deconv_predict_logits
         return logits, diff, quantize_stats, mask.sum().type_as(diff), codes, quantize_out['word_predict'], code_prior
 
